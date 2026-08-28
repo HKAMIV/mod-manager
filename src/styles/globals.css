@@ -1,0 +1,324 @@
+/* Latin-only subsets used throughout — the app UI is English-only, so we skip the
+   cyrillic/devanagari/vietnamese/greek subsets @fontsource ships by default to keep
+   the bundle lean. */
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/rajdhani/latin-500.css";
+@import "@fontsource/rajdhani/latin-600.css";
+@import "@fontsource/rajdhani/latin-700.css";
+
+/* Per-game display fonts — see [data-game] font-family overrides below */
+@import "@fontsource/cinzel/latin-500.css"; /* Genshin Impact — celestial fantasy serif */
+@import "@fontsource/cinzel/latin-700.css";
+@import "@fontsource/oxanium/latin-500.css"; /* Honkai: Star Rail — cosmic minimalist sci-fi */
+@import "@fontsource/oxanium/latin-600.css";
+@import "@fontsource/oxanium/latin-700.css";
+@import "@fontsource/teko/latin-500.css"; /* Wuthering Waves — sharp, tall, kinetic */
+@import "@fontsource/teko/latin-600.css";
+@import "@fontsource/teko/latin-700.css";
+@import "@fontsource/bungee/latin-400.css"; /* Zenless Zone Zero — comic-pop street display */
+@import "@fontsource/russo-one/latin-400.css"; /* Arknights: Endfield — industrial stencil */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * "Void & Astral" design system
+ * Locked color palette — see .kiro/steering/design-system.md for usage rules.
+ * Do not introduce new colors outside this token set without updating the steering doc.
+ */
+:root {
+  /* Surfaces */
+  --surface-0: #0d0f12; /* base background */
+  --surface-1: #161920; /* cards / panels */
+  --surface-2: #1e222b; /* hover / raised */
+  --surface-3: #282d38; /* borders / dividers */
+
+  /* Core accents */
+  --accent: #00f0ff; /* electric cyan — primary actions, active nav, toggles */
+  --accent-hover: #33f3ff;
+  --accent-secondary: #8b5cf6; /* astral purple — status tags, hover states */
+  --accent-secondary-hover: #a78bfa;
+  --gold: #ffd166; /* 5-star gold — favorites, notifications, premium flags */
+  --gold-hover: #ffdd8c;
+
+  /* Text */
+  --text-primary: #f3f4f6;
+  --text-secondary: #c3c6cb;
+  --text-muted: #9ca3af;
+
+  /* Dynamic per-game theme tokens, overridden by [data-game] below. Default to the
+     Honkai: Star Rail look (cosmic minimalism), which matches the base palette. */
+  --game-accent: var(--accent);
+  --game-accent-hover: var(--accent-hover);
+  --game-accent2: var(--accent-secondary);
+  --game-accent2-hover: var(--accent-secondary-hover);
+  --font-display: "Rajdhani", sans-serif;
+  --tracking-display: 0.06em;
+  --radius-panel: 14px;
+  --radius-control: 8px;
+  --border-width-panel: 1px;
+  --bg-pattern: linear-gradient(var(--surface-3) 1px, transparent 1px),
+    linear-gradient(90deg, var(--surface-3) 1px, transparent 1px);
+  --bg-pattern-size: 40px 40px, 40px 40px;
+
+  /* Glassmorphism panel surface */
+  --glass-bg: rgba(22, 25, 32, 0.85);
+}
+
+/*
+ * Per-game theme overrides.
+ * Each game gets: a secondary accent (game-accent2), a display font, a display
+ * tracking value, a shape language (panel/control radius + border width), and a
+ * distinct background texture layered under .app-shell. Surfaces and text colors
+ * stay universal per the core palette — only these tokens shift per game.
+ * See .kiro/steering/design-system.md for the full rationale and usage rules.
+ */
+
+/* Honkai: Star Rail — Sci-Fi Luxury & Cosmic Minimalism. This is the baseline
+   look (razor-thin geometry, glassmorphism, cyan-on-purple cosmic contrast). */
+[data-game="honkai-star-rail"] {
+  --game-accent: #8b5cf6;
+  --game-accent-hover: #a78bfa;
+  --game-accent2: #00f0ff;
+  --game-accent2-hover: #33f3ff;
+  --font-display: "Oxanium", sans-serif;
+  --tracking-display: 0.08em;
+  --radius-panel: 14px;
+  --radius-control: 8px;
+  --border-width-panel: 1px;
+  --bg-pattern:
+    radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.5) 100%, transparent),
+    radial-gradient(1px 1px at 65% 12%, rgba(255, 255, 255, 0.35) 100%, transparent),
+    radial-gradient(1px 1px at 85% 60%, rgba(255, 255, 255, 0.4) 100%, transparent),
+    radial-gradient(1px 1px at 40% 75%, rgba(255, 255, 255, 0.3) 100%, transparent),
+    radial-gradient(1px 1px at 10% 85%, rgba(255, 255, 255, 0.35) 100%, transparent),
+    linear-gradient(var(--surface-3) 1px, transparent 1px),
+    linear-gradient(90deg, var(--surface-3) 1px, transparent 1px);
+  --bg-pattern-size: auto, auto, auto, auto, auto, 40px 40px, 40px 40px;
+}
+
+/* Genshin Impact — Celestial Fantasy & Classic Elegance. Airy, painterly, gold
+   trim, soft rounded shapes, sparkle field instead of a technical grid. */
+[data-game="genshin-impact"] {
+  --game-accent: #48d1cc;
+  --game-accent-hover: #7bdedb;
+  --game-accent2: #e5c158;
+  --game-accent2-hover: #edcf7e;
+  --font-display: "Cinzel", serif;
+  --tracking-display: 0.04em;
+  --radius-panel: 22px;
+  --radius-control: 14px;
+  --border-width-panel: 1px;
+  --bg-pattern:
+    radial-gradient(2px 2px at 15% 20%, rgba(229, 193, 88, 0.5) 100%, transparent),
+    radial-gradient(1.5px 1.5px at 75% 15%, rgba(255, 255, 255, 0.45) 100%, transparent),
+    radial-gradient(2px 2px at 88% 70%, rgba(229, 193, 88, 0.4) 100%, transparent),
+    radial-gradient(1.5px 1.5px at 35% 82%, rgba(255, 255, 255, 0.4) 100%, transparent),
+    radial-gradient(1.5px 1.5px at 55% 45%, rgba(229, 193, 88, 0.3) 100%, transparent);
+  --bg-pattern-size: auto, auto, auto, auto, auto;
+}
+
+/* Wuthering Waves — Post-Apocalyptic Desolation & Fluid Tech. Starker, cooler,
+   near-sharp corners, kinetic frequency lines instead of a grid. */
+[data-game="wuthering-waves"] {
+  --game-accent: #00e5ff;
+  --game-accent-hover: #5cf0ff;
+  --game-accent2: #e2e8f0;
+  --game-accent2-hover: #f1f5f9;
+  --font-display: "Teko", sans-serif;
+  --tracking-display: 0.06em;
+  --radius-panel: 2px;
+  --radius-control: 2px;
+  --border-width-panel: 1px;
+  --bg-pattern: repeating-linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--game-accent) 8%, transparent) 0px,
+    transparent 1px,
+    transparent 26px
+  );
+  --bg-pattern-size: auto;
+}
+
+/* Zenless Zone Zero — Streetwear, Retro-Futurism & Comic Pop. Bold thick lines,
+   halftone dots, high-energy acid yellow / neon magenta duo. */
+[data-game="zenless-zone-zero"] {
+  --game-accent: #fafd00;
+  --game-accent-hover: #fdff66;
+  --game-accent2: #ff0055;
+  --game-accent2-hover: #ff4d85;
+  --font-display: "Bungee", sans-serif;
+  --tracking-display: 0.01em;
+  --radius-panel: 4px;
+  --radius-control: 4px;
+  --border-width-panel: 2px;
+  --bg-pattern: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--game-accent2) 22%, transparent) 1.2px,
+    transparent 1.2px
+  );
+  --bg-pattern-size: 14px 14px;
+}
+
+/* Arknights: Endfield — Industrial Sci-Fi & Tactical HUD. Utilitarian, hazard
+   orange + safety yellow, sharp/notched corners, coordinate-grid overlay. */
+[data-game="arknights-endfield"] {
+  --game-accent: #ff5500;
+  --game-accent-hover: #ff8040;
+  --game-accent2: #ffc400;
+  --game-accent2-hover: #ffd54d;
+  --font-display: "Russo One", sans-serif;
+  --tracking-display: 0.1em;
+  --radius-panel: 0px;
+  --radius-control: 0px;
+  --border-width-panel: 1px;
+  --bg-pattern:
+    linear-gradient(color-mix(in srgb, var(--game-accent) 14%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--game-accent) 14%, transparent) 1px, transparent 1px);
+  --bg-pattern-size: 56px 56px, 56px 56px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+/* App shell — ambient radial glow anchored to the active game's accent pair, plus a
+   game-specific background texture (grid, sparkles, frequency lines, halftone, or
+   coordinate overlay — see [data-game] blocks above). This is what keeps the base
+   background from feeling like flat charcoal, and what makes each game feel distinct. */
+.app-shell {
+  position: relative;
+  background-color: var(--surface-0);
+  background-image:
+    radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--game-accent) 16%, transparent), transparent 55%),
+    radial-gradient(circle at 100% 110%, color-mix(in srgb, var(--game-accent2) 10%, transparent), transparent 50%),
+    var(--bg-pattern);
+  background-size: auto, auto, var(--bg-pattern-size);
+  transition: background-color 400ms ease;
+}
+.app-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--surface-0) 55%, transparent) 70%,
+    var(--surface-0) 100%
+  );
+}
+
+/* Glassmorphism panel utility — for overlays/modals sitting above content */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Angular "notched corner" card. Corner cut scales with the active game's shape
+   language: sharp/angular for Wuthering Waves & Endfield, soft for Genshin, moderate
+   for Star Rail/ZZZ. On games with radius-panel >= 20px (Genshin) the notch is
+   effectively disabled in favor of the rounded corner set below. */
+.hud-panel {
+  position: relative;
+  clip-path: polygon(
+    var(--radius-control) 0%,
+    100% 0%,
+    100% calc(100% - var(--radius-control)),
+    calc(100% - var(--radius-control)) 100%,
+    0% 100%,
+    0% var(--radius-control)
+  );
+}
+
+/* Standard panel/card radius, driven by the active game's shape language */
+.game-panel {
+  border-radius: var(--radius-panel);
+  border-width: var(--border-width-panel);
+}
+
+/* Standard control (button/input/chip) radius, driven by the active game */
+.game-control {
+  border-radius: var(--radius-control);
+}
+
+/* Thin glowing rule, used under headers/titles for a HUD divider feel */
+.hud-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--game-accent) 0%,
+    color-mix(in srgb, var(--game-accent) 30%, transparent) 40%,
+    transparent 100%
+  );
+  box-shadow: 0 0 8px -1px var(--game-accent);
+}
+
+/* Uppercase, tracked label style for section headers — matches HUD/gacha UI convention.
+   Tracking width adapts per-game (tighter for Genshin's elegant serif, wider for
+   Endfield's stenciled industrial look). */
+.hud-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Page transition — a quick fade + subtle upward slide when views mount.
+   Applied via .page-enter on the outermost wrapper of each page view. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.page-enter {
+  animation: page-enter 200ms ease-out both;
+}
+
+/* Toggle switch transition feedback — subtle scale pulse on state change */
+@keyframes toggle-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.toggle-pop {
+  animation: toggle-pop 200ms ease-out;
+}
