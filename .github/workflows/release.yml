@@ -36,9 +36,6 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli
-
       - name: Build Tauri (Linux)
         run: npx tauri build --bundles appimage,deb
 
@@ -71,9 +68,6 @@ jobs:
 
       - name: Install frontend deps
         run: npm ci
-
-      - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli
 
       - name: Build Tauri (macOS)
         run: npx tauri build --bundles dmg
