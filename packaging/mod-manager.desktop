@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Mod Manager
+Comment=Manage game mods for Wuthering Waves, Genshin Impact, ZZZ, HSR, and Arknights Endfield
+Exec=mod-manager
+Icon=mod-manager
+Terminal=false
+Type=Application
+Categories=Game;Utility;
+Keywords=mods;modding;gamebanana;genshin;wuthering;
+StartupWMClass=mod-manager

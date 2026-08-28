@@ -1,0 +1,50 @@
+# Maintainer: HKAMIV
+pkgname=mod-manager
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Desktop mod manager for anime game modding (WuWa, Genshin, ZZZ, HSR, Endfield)"
+arch=('x86_64')
+url="https://github.com/HKAMIV/mod-manager"
+license=('MIT')
+depends=(
+  'webkit2gtk-4.1'
+  'gtk3'
+  'openssl'
+  'libappindicator-gtk3'
+)
+makedepends=(
+  'rust'
+  'cargo'
+  'nodejs'
+  'npm'
+  'patchelf'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  npm ci
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  npx vite build
+  cd src-tauri
+  cargo build --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  # Binary
+  install -Dm755 "src-tauri/target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+
+  # Desktop file
+  install -Dm644 "packaging/$pkgname.desktop" "$pkgdir/usr/share/applications/$pkgname.desktop"
+
+  # Icons
+  install -Dm644 "src-tauri/icons/32x32.png" "$pkgdir/usr/share/icons/hicolor/32x32/apps/$pkgname.png"
+  install -Dm644 "src-tauri/icons/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/$pkgname.png"
+  install -Dm644 "src-tauri/icons/128x128@2x.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+}
