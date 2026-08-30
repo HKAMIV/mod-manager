@@ -467,6 +467,78 @@ empty-game fallback.
 
 ---
 
+### Phase 12 — Symlink-Based Mod Management (Architecture Evolution)
+
+**Goal:** Stop invalidating 3DMigoto/XXMI persistent per-mod settings when
+toggling mods, by decoupling "where mod files physically live" from "what the
+mod loader sees."
+
+**The problem with the current `DISABLED_` rename approach.** 3DMigoto (the
+engine XXMI/GIMI/SRMI/WWMI/ZZMI wrap) stores persistent per-mod state — toggle
+positions, active variant of a key-swappable mod, `$active`-style command-list
+vars — in `d3dx_user.ini` next to the loader, **keyed by the mod's file path**
+(e.g. `$\mods\characters\furina\ = 1`). Our Phase 3 toggle renames the folder
+(`Furina` -> `DISABLED_Furina`), which silently orphans every setting keyed to
+the old path. The user loses their configured variant/toggle state every time
+they disable and re-enable a mod. For simple on/off mods this is invisible; for
+the increasingly common key-swap/toggle mods it's a real data-loss bug.
+
+**The approach (borrowed from Integrated Mod Manager, verified against its
+source).** Split the mod store into two directories and connect them with
+symlinks:
+
+- **Source** (`managed_src`, lives under our data dir): the real mod files,
+  organized by category, never moved once installed. This is the stable
+  identity for a mod.
+- **Target** (`managed_tgt`, lives inside the game's actual mod folder that the
+  loader reads): a tree of **symlinks** pointing back into source.
+
+Enabling a mod = create a symlink in target. Disabling = remove the symlink.
+The physical files never move, so `d3dx_user.ini`'s path-keyed settings stay
+valid across unlimited enable/disable cycles. This also makes toggling near-
+instant (no large-folder renames/moves on disk) and makes a mod folder on a
+slow SD card behave the same as one on an internal drive.
+
+**Why this is worth a dedicated phase, not a patch:** it changes the core mod
+identity model that Phases 2-9 were all built on (`ModInfo.path`,
+`ModInfo.key`, the `DISABLED_` prefix convention, preset apply, restore points,
+conflict detection, and download placement all assume the rename model). It
+needs a careful migration path so existing users' mod folders aren't broken.
+
+- [ ] Rust `create_symlink` command (`symlink_dir`/`symlink_file` on Windows,
+      `std::os::unix::fs::symlink` on Unix) — the one genuinely new primitive.
+- [ ] Rework `mods.rs` scan/toggle to the source/target model: scan reads
+      `managed_src`, enabled-state is "does a symlink exist in `managed_tgt`"
+      rather than "is the folder prefixed `DISABLED_`".
+- [ ] `d3dx_user.ini` key migration + backup — on any operation that *does*
+      move a real path (install, category re-org), rewrite the matching
+      `$\mods\<oldpath>` keys to the new path, after copying the ini to
+      `d3dx_user_pre_imm.ini.bak` first (mirrors IMM's safety step).
+- [ ] Live-reload trigger — send 3DMigoto's reload hotkey (F10) to the game so
+      toggles apply without a game restart. Windows: `keybd_event`. Linux:
+      `ydotool`/`xdotool` with a Wayland focus-bounce workaround (see IMM's
+      `hotreload.rs`). Gated behind a setting; dependency-checked on Linux.
+- [ ] Migration path — detect an existing `DISABLED_`-style flat mod folder on
+      first run of the new version and offer to convert it to the source/target
+      symlink layout (with a restore point taken first, per Phase 5's safety
+      principle). Never auto-convert silently.
+- [ ] Update every downstream consumer of the rename model: preset apply
+      (toggle = symlink add/remove), restore points (snapshot = which symlinks
+      exist), conflict detection (unchanged — still category-based), and
+      download placement (install into `managed_src`, symlink into
+      `managed_tgt`).
+- [ ] Windows symlink caveat: creating symlinks historically needed admin or
+      Developer Mode. Detect and surface a clear message if symlink creation
+      fails, rather than silently falling back to copies.
+
+Rationale note: this is deliberately sequenced last because it's the highest-
+risk change in the project — it touches the foundational mod model. Everything
+before it delivers a fully working manager on the simpler rename model; this
+phase is the upgrade that makes the app safe for the mods that carry their own
+persistent 3DMigoto settings.
+
+---
+
 ## Platform Considerations (Arch Linux / SteamOS)
 
 | Concern | Approach |
@@ -496,5 +568,6 @@ empty-game fallback.
 | Phase 7 — Downloads | Done | Sequential download queue + auto-extract (zip/7z/rar) + smart placement + conflict resolution UI. macOS App Nap opt-out so background downloads don't stall when the window isn't focused. 11 new Rust unit tests (42 total), tsc/vite/cargo all pass |
 | Phase 8 — Update Tracking | Done | Per-game origin manifest, sequential GB API check with rate limiting, gold update badge on ModCard, auto-link on install. 4 new Rust unit tests (46 total), tsc/vite/cargo all pass |
 | Phase 9 — Polish/SteamOS | Done | Mod deletion (batch, with path-safety + confirmation), page transitions (CSS keyframe), import/export config (JSON), auto-reload already wired. 2 new Rust unit tests (48 total), tsc/vite/cargo clean |
-| Phase 10 — Packaging | Not Started | |
+| Phase 10 — Packaging | Done | GitHub Actions CI (test on push) + release pipeline (AppImage/.deb/.dmg on tag), PKGBUILD, .desktop file. Shipped v0.1.2. Fixed SteamOS white screen (relative asset base + AppImage DMABUF-renderer opt-out) |
 | Phase 11 — Stretch | Not Started | |
+| Phase 12 — Symlink Mod Mgmt | Not Started | Architecture evolution: source/target split + symlinks so toggling never invalidates 3DMigoto path-keyed settings in `d3dx_user.ini`. Highest-risk change — sequenced last |
