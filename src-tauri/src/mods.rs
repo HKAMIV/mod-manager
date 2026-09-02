@@ -14,13 +14,13 @@
 //!
 //! ```text
 //! mod_path/
-//!   managed_src/           ← real mod files live here, never moved
-//!     Characters/
+//!   DISABLED_managed_src/  ← real mod files live here, never moved
+//!     Characters/           (DISABLED_ prefix → 3DMigoto skips this folder)
 //!       Furina/
 //!         mod.ini
 //!   managed_tgt/           ← what 3DMigoto reads; contains only symlinks
 //!     Characters/
-//!       Furina  →  ../../managed_src/Characters/Furina
+//!       Furina  →  ../../DISABLED_managed_src/Characters/Furina
 //! ```
 //!
 //! Enable = create symlink in `managed_tgt`. Disable = remove symlink.
@@ -41,8 +41,10 @@ use std::time::UNIX_EPOCH;
 pub const DISABLED_PREFIX: &str = "DISABLED_";
 
 /// The subdirectory name under `mod_path` that holds real mod files in the
-/// symlink layout. Its presence is the detection signal for the layout.
-pub const MANAGED_SRC: &str = "managed_src";
+/// symlink layout. Prefixed with `DISABLED_` so 3DMigoto/XXMI skips it
+/// during its own mod scan — only the symlinks in `MANAGED_TGT` should be
+/// visible to the loader.
+pub const MANAGED_SRC: &str = "DISABLED_managed_src";
 
 /// The subdirectory name under `mod_path` that holds symlinks in the
 /// symlink layout (what 3DMigoto/XXMI actually reads).
@@ -892,14 +894,14 @@ mod tests {
     fn setup_symlink_layout(root: &Path) {
         // Creates: root/managed_src/Characters/Furina/mod.ini
         //          root/managed_src/Characters/Nahida/mod.ini
-        write_file(&root.join("managed_src/Characters/Furina/mod.ini"), "test");
-        write_file(&root.join("managed_src/Characters/Furina/preview.png"), "img");
-        write_file(&root.join("managed_src/Characters/Nahida/mod.ini"), "test");
+        write_file(&root.join(format!("{}/Characters/Furina/mod.ini", MANAGED_SRC)), "test");
+        write_file(&root.join(format!("{}/Characters/Furina/preview.png", MANAGED_SRC)), "img");
+        write_file(&root.join(format!("{}/Characters/Nahida/mod.ini", MANAGED_SRC)), "test");
         // Furina enabled (symlink exists), Nahida disabled (no symlink)
-        fs::create_dir_all(root.join("managed_tgt/Characters")).unwrap();
+        fs::create_dir_all(root.join(format!("{}/Characters", MANAGED_TGT))).unwrap();
         symlink::create_dir_symlink(
-            &root.join("managed_src/Characters/Furina"),
-            &root.join("managed_tgt/Characters/Furina"),
+            &root.join(format!("{}/Characters/Furina", MANAGED_SRC)),
+            &root.join(format!("{}/Characters/Furina", MANAGED_TGT)),
         ).unwrap();
     }
 
@@ -932,7 +934,7 @@ mod tests {
         assert!(!nahida.enabled, "Nahida has no symlink so should be disabled");
         assert!(nahida.using_symlink_layout);
         // id/path should point into managed_src (stable)
-        assert!(nahida.path.contains("managed_src"), "path should be in managed_src");
+        assert!(nahida.path.contains(MANAGED_SRC), "path should be in {}", MANAGED_SRC);
 
         fs::remove_dir_all(&root).ok();
     }
@@ -943,7 +945,7 @@ mod tests {
         let root = temp_fixture_dir();
         setup_symlink_layout(&root);
 
-        let nahida_src = root.join("managed_src/Characters/Nahida");
+        let nahida_src = root.join(format!("{}/Characters/Nahida", MANAGED_SRC));
         let result = set_mod_enabled(nahida_src.to_str().unwrap(), "Characters", true)
             .expect("enable should succeed");
         assert!(result.enabled);
@@ -951,7 +953,7 @@ mod tests {
         // The id/path must NOT have changed (stable in symlink layout)
         assert_eq!(result.path, nahida_src.to_string_lossy());
 
-        let link = root.join("managed_tgt/Characters/Nahida");
+        let link = root.join(format!("{}/Characters/Nahida", MANAGED_TGT));
         assert!(symlink::is_symlink(&link), "symlink should now exist");
 
         fs::remove_dir_all(&root).ok();
@@ -963,12 +965,12 @@ mod tests {
         let root = temp_fixture_dir();
         setup_symlink_layout(&root);
 
-        let furina_src = root.join("managed_src/Characters/Furina");
+        let furina_src = root.join(format!("{}/Characters/Furina", MANAGED_SRC));
         let result = set_mod_enabled(furina_src.to_str().unwrap(), "Characters", false)
             .expect("disable should succeed");
         assert!(!result.enabled);
 
-        let link = root.join("managed_tgt/Characters/Furina");
+        let link = root.join(format!("{}/Characters/Furina", MANAGED_TGT));
         assert!(!symlink::is_symlink(&link), "symlink should be removed");
         // Real files must be untouched
         assert!(furina_src.join("mod.ini").exists(), "source files must survive");
@@ -982,7 +984,7 @@ mod tests {
         let root = temp_fixture_dir();
         setup_symlink_layout(&root);
 
-        let furina_src = root.join("managed_src/Characters/Furina");
+        let furina_src = root.join(format!("{}/Characters/Furina", MANAGED_SRC));
         // Furina is already enabled; enabling again should not error.
         let result = set_mod_enabled(furina_src.to_str().unwrap(), "Characters", true)
             .expect("no-op should succeed");
@@ -997,12 +999,12 @@ mod tests {
         let root = temp_fixture_dir();
         setup_symlink_layout(&root);
 
-        let furina_src = root.join("managed_src/Characters/Furina");
+        let furina_src = root.join(format!("{}/Characters/Furina", MANAGED_SRC));
         let key = delete_mod(furina_src.to_str().unwrap(), root.to_str().unwrap())
             .expect("delete should succeed");
         assert_eq!(key, "Characters/Furina");
         assert!(!furina_src.exists(), "source files should be deleted");
-        let link = root.join("managed_tgt/Characters/Furina");
+        let link = root.join(format!("{}/Characters/Furina", MANAGED_TGT));
         assert!(!link.exists(), "symlink should also be removed");
 
         fs::remove_dir_all(&root).ok();

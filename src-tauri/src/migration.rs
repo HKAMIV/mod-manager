@@ -15,13 +15,13 @@
 //!
 //! After (symlink layout):
 //!   mod_path/
-//!     managed_src/
+//!     DISABLED_managed_src/
 //!       Characters/
 //!         Furina/          ← real files (moved from legacy path)
-//!         Nahida/          ← real files (DISABLED_ prefix stripped from folder name)
+//!         Nahida/          ← real files (DISABLED_ prefix stripped)
 //!     managed_tgt/
 //!       Characters/
-//!         Furina  →  ../../managed_src/Characters/Furina   (was enabled)
+//!         Furina  →  ../../DISABLED_managed_src/Characters/Furina
 //!         (no Nahida symlink — was disabled)
 //! ```
 //!
@@ -437,9 +437,9 @@ mod tests {
         assert_eq!(result.skipped_count, 0);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
 
-        // Real files should be under managed_src.
-        let furina_src = root.join("managed_src/Characters/Furina");
-        let nahida_src = root.join("managed_src/Characters/Nahida");
+        // Real files should be under DISABLED_managed_src.
+        let furina_src = root.join(format!("{}/Characters/Furina", crate::mods::MANAGED_SRC));
+        let nahida_src = root.join(format!("{}/Characters/Nahida", crate::mods::MANAGED_SRC));
         assert!(furina_src.join("mod.ini").exists(), "Furina source file missing");
         assert!(nahida_src.join("mod.ini").exists(), "Nahida source file missing");
         assert_eq!(fs::read_to_string(furina_src.join("mod.ini")).unwrap(), "furina-data");
@@ -450,8 +450,8 @@ mod tests {
         assert!(!root.join("Characters/DISABLED_Nahida").exists(), "legacy Nahida should be gone");
 
         // Furina was enabled → symlink must exist; Nahida was disabled → no symlink.
-        let furina_link = root.join("managed_tgt/Characters/Furina");
-        let nahida_link = root.join("managed_tgt/Characters/Nahida");
+        let furina_link = root.join(format!("{}/Characters/Furina", crate::mods::MANAGED_TGT));
+        let nahida_link = root.join(format!("{}/Characters/Nahida", crate::mods::MANAGED_TGT));
         assert!(symlink::is_symlink(&furina_link), "Furina symlink should exist");
         assert!(!nahida_link.exists(), "Nahida should have no symlink (was disabled)");
 

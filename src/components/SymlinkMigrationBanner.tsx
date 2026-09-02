@@ -110,8 +110,9 @@ export default function SymlinkMigrationBanner({
         {/* What changes callout */}
         <div className="game-control bg-surface-2/60 border border-surface-3 px-3 py-2 text-xs text-text-muted space-y-0.5">
           <p className="text-text-secondary font-medium mb-1">What changes:</p>
-          <p>• Mod files move into <code className="font-mono text-[10px] text-game2">managed_src/</code> — paths stabilise forever</p>
+          <p>• Mod files move into <code className="font-mono text-[10px] text-game2">DISABLED_managed_src/</code> — paths stabilise forever</p>
           <p>• Enable/disable creates or removes a symlink in <code className="font-mono text-[10px] text-game2">managed_tgt/</code></p>
+          <p>• <code className="font-mono text-[10px] text-game2">DISABLED_managed_src/</code> is hidden from XXMI/3DMigoto by the prefix</p>
           <p>• <code className="font-mono text-[10px] text-game2">d3dx_user.ini</code> keys are rewritten to the new paths automatically</p>
           <p>• Existing mod enabled/disabled states are preserved exactly</p>
         </div>
