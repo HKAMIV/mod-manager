@@ -11,11 +11,36 @@ use std::path::Path;
 
 /// Create a directory symlink: `link` → `target`.
 /// Both paths should be absolute. `link` must NOT already exist.
+///
+/// On Linux/SteamOS: works on ext4 and btrfs (the normal internal and SD
+/// card filesystems). Fails on exFAT-formatted SD cards — `EPERM` is caught
+/// and surfaced as an actionable message telling the user to reformat as ext4.
 pub fn create_dir_symlink(target: &Path, link: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(target, link)
-            .map_err(|e| format!("Failed to create symlink '{}' → '{}': {}", link.display(), target.display(), e))
+        std::os::unix::fs::symlink(target, link).map_err(|e| {
+            // EPERM on Linux almost always means the filesystem doesn't support
+            // symlinks — the most common case on Steam Deck is an exFAT-formatted
+            // SD card. Surface a specific, actionable message instead of the
+            // raw OS error.
+            #[cfg(target_os = "linux")]
+            if e.raw_os_error() == Some(1) {
+                // EPERM = 1
+                return format!(
+                    "Cannot create symlink on '{}': the filesystem does not support symlinks. \
+                     If your mods are on an SD card formatted as exFAT, reformat it as ext4 \
+                     (Steam Menu → Settings → Storage → … → Format as ext4) and move your \
+                     mods back. ext4 is required for the symlink layout.",
+                    link.parent().unwrap_or(link).display()
+                );
+            }
+            format!(
+                "Failed to create symlink '{}' → '{}': {}",
+                link.display(),
+                target.display(),
+                e
+            )
+        })
     }
     #[cfg(windows)]
     {
