@@ -2,11 +2,13 @@ mod commands;
 mod downloads;
 mod gamebanana;
 mod hotkeys;
+mod migration;
 mod mods;
 mod power_management;
 mod presets;
 mod restore_points;
 mod state;
+mod symlink;
 mod update_tracking;
 mod watcher;
 
@@ -35,6 +37,8 @@ pub fn run() {
             commands::mods::batch_toggle_mods,
             commands::mods::delete_game_mod,
             commands::mods::batch_delete_game_mods,
+            commands::mods::get_symlink_layout_status,
+            commands::mods::migrate_to_symlink_layout_cmd,
             commands::watcher::watch_mod_directory,
             commands::watcher::unwatch_mod_directory,
             commands::presets::list_presets,

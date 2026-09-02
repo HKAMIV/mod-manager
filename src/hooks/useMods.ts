@@ -7,6 +7,8 @@ import {
   type BatchDeleteResult,
   type BatchToggleResult,
   type CategoryConflict,
+  type LayoutStatus,
+  type MigrationResult,
   type ModInfo,
   type ModStatusFilter,
   type ToggleTarget,
@@ -35,6 +37,15 @@ interface UseModsResult {
   conflicts: CategoryConflict[];
   /** ids of every mod currently involved in a conflict, for fast lookup in ModCard. */
   conflictingIds: Set<string>;
+  // --- Phase 12: symlink layout ---
+  /** Layout status for the active game's mod directory. null when no mod path configured. */
+  layoutStatus: LayoutStatus | null;
+  /** True while migrating. */
+  migrating: boolean;
+  /** Error string from the last migration attempt, if any. */
+  migrationError: string | null;
+  /** Kick off the one-time migration to symlink layout. */
+  migrateToSymlinkLayout: (withRestorePoint: boolean) => Promise<MigrationResult | null>;
 }
 
 /**
@@ -43,6 +54,9 @@ interface UseModsResult {
  * its configured mod path changes, subscribing to filesystem-watcher events
  * (respecting the auto_reload setting), and exposing search/category/status
  * filtering over the raw list.
+ *
+ * Phase 12 addition: also queries the layout status on game switch so
+ * LocalView can show a migration prompt when legacy mods are detected.
  */
 export function useMods(): UseModsResult {
   const { activeGame, settings } = useAppStore();
@@ -53,6 +67,11 @@ export function useMods(): UseModsResult {
   const [statusFilter, setStatusFilter] = useState<ModStatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
+
+  // Phase 12 state
+  const [layoutStatus, setLayoutStatus] = useState<LayoutStatus | null>(null);
+  const [migrating, setMigrating] = useState(false);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
 
   const modPath = useMemo(
     () => settings?.games.find((g) => g.id === activeGame)?.mod_path ?? null,
@@ -81,6 +100,24 @@ export function useMods(): UseModsResult {
     }
   }, [activeGame, modPath]);
 
+  // Fetch the layout status once per game/path change so LocalView knows
+  // whether to show the migration prompt. This is a cheap read-only query.
+  const fetchLayoutStatus = useCallback(async () => {
+    if (!modPath) {
+      setLayoutStatus(null);
+      return;
+    }
+    try {
+      const status = await invoke<LayoutStatus>("get_symlink_layout_status", {
+        gameId: activeGame,
+      });
+      setLayoutStatus(status);
+    } catch {
+      // Non-fatal — layout status is optional UI chrome.
+      setLayoutStatus(null);
+    }
+  }, [activeGame, modPath]);
+
   // Re-fetch whenever the active game or its configured path changes, and
   // reset filters so stale search/category state from a different game
   // doesn't silently hide everything.
@@ -88,8 +125,11 @@ export function useMods(): UseModsResult {
     setSearch("");
     setStatusFilter("all");
     setCategoryFilter(null);
+    setLayoutStatus(null);
+    setMigrationError(null);
     fetchMods();
-  }, [fetchMods]);
+    fetchLayoutStatus();
+  }, [fetchMods, fetchLayoutStatus]);
 
   // Watch the mod directory for external changes (mods added/removed/toggled
   // outside the app) and auto-refresh when notified, if the user has
@@ -123,10 +163,9 @@ export function useMods(): UseModsResult {
   }, [activeGame, modPath, autoReload, fetchMods]);
 
   // Toggle a single mod's enabled state. Optimistically replaces it in local
-  // state with the backend's returned ModInfo (which has a new id/path since
-  // toggling renames the folder) rather than waiting for a full rescan, so
-  // the UI feels instant. Falls back to a full refresh if the toggle errors,
-  // in case local state has drifted from disk.
+  // state with the backend's returned ModInfo (which, for the legacy layout,
+  // has a new id/path since toggling renames the folder; for the symlink
+  // layout id/path are stable so this is a pure enabled-flag update).
   const toggleMod = useCallback(
     async (mod: ModInfo, enabled: boolean) => {
       setToggleError(null);
@@ -147,8 +186,8 @@ export function useMods(): UseModsResult {
 
   // Toggle multiple mods at once. Successfully toggled mods are merged into
   // local state by matching on the stable `key` (not `id`, since toggling
-  // changes the path/id). Failures are surfaced via the returned result so
-  // the caller can show which specific mods failed.
+  // changes the path/id in the legacy layout). Failures are surfaced via the
+  // returned result so the caller can show which specific mods failed.
   const batchToggle = useCallback(
     async (targetMods: ModInfo[], enabled: boolean): Promise<BatchToggleResult> => {
       setToggleError(null);
@@ -206,6 +245,31 @@ export function useMods(): UseModsResult {
     [activeGame, fetchMods]
   );
 
+  // Phase 12: one-time migration from legacy to symlink layout.
+  const migrateToSymlinkLayout = useCallback(
+    async (withRestorePoint: boolean): Promise<MigrationResult | null> => {
+      setMigrating(true);
+      setMigrationError(null);
+      try {
+        const result = await invoke<MigrationResult>("migrate_to_symlink_layout_cmd", {
+          gameId: activeGame,
+          withRestorePoint,
+        });
+        // Refresh both the mod list and the layout status after migration.
+        await fetchMods();
+        await fetchLayoutStatus();
+        return result;
+      } catch (err) {
+        const msg = typeof err === "string" ? err : "Migration failed";
+        setMigrationError(msg);
+        return null;
+      } finally {
+        setMigrating(false);
+      }
+    },
+    [activeGame, fetchMods, fetchLayoutStatus]
+  );
+
   const categories = useMemo(() => {
     const set = new Set(mods.map((m) => m.category));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
@@ -213,10 +277,7 @@ export function useMods(): UseModsResult {
 
   // Passive conflict heuristic: character mods are near-universally full
   // replacements of the same model/texture slot, so 2+ enabled mods in the
-  // same (non-exempt) category is treated as a likely conflict. This is a
-  // warning, not a rule — split mods (e.g. separate hair/outfit mods for the
-  // same character) can legitimately coexist, so nothing here blocks toggling
-  // or requires the user to "resolve" anything.
+  // same (non-exempt) category is treated as a likely conflict.
   const conflicts = useMemo<CategoryConflict[]>(() => {
     const byCategory = new Map<string, ModInfo[]>();
     for (const mod of mods) {
@@ -271,5 +332,9 @@ export function useMods(): UseModsResult {
     toggleError,
     conflicts,
     conflictingIds,
+    layoutStatus,
+    migrating,
+    migrationError,
+    migrateToSymlinkLayout,
   };
 }

@@ -224,32 +224,63 @@ pub fn restore(game_id: &str, mod_path: &str, restore_point_id: &str) -> Result<
     })
 }
 
-/// Recreate a mod folder under `mod_path/<category>/<name>` (or `mod_path/<name>`
-/// for "Uncategorized") from a backup directory, using the entry's saved
-/// enabled state to decide whether to apply the DISABLED_ prefix.
+/// Recreate a mod folder from a backup directory.
+///
+/// Handles both layouts:
+/// - **Legacy**: places the folder under `mod_path/<category>/<name>`, applying
+///   the `DISABLED_` prefix when the mod was disabled at snapshot time.
+/// - **Symlink layout**: places the folder under `managed_src/<category>/<name>`
+///   and, if the mod was enabled, creates the corresponding symlink in
+///   `managed_tgt`.
 fn recreate_mod(mod_path: &str, entry: &SnapshotEntry, backup_src: &Path) -> Result<(), String> {
     let base_name = entry.key.rsplit('/').next().unwrap_or(&entry.key);
-    let folder = if entry.enabled {
-        base_name.to_string()
-    } else {
-        format!("{}{}", crate::mods::DISABLED_PREFIX, base_name)
-    };
 
-    let dest_parent = if entry.category == "Uncategorized" {
-        PathBuf::from(mod_path)
-    } else {
-        // The category on disk uses spaces (display name); recreate the same
-        // folder name convention scan_mods produces so it round-trips cleanly.
-        PathBuf::from(mod_path).join(&entry.category)
-    };
-    fs::create_dir_all(&dest_parent).map_err(|e| e.to_string())?;
+    if crate::mods::is_symlink_layout(mod_path) {
+        // Symlink layout: restore into managed_src, then symlink if enabled.
+        let src_root = crate::mods::src_root(mod_path);
+        let dest_parent = if entry.category == "Uncategorized" {
+            src_root.clone()
+        } else {
+            src_root.join(&entry.category)
+        };
+        fs::create_dir_all(&dest_parent).map_err(|e| e.to_string())?;
+        let dest = dest_parent.join(base_name);
+        if dest.exists() {
+            return Err(format!("A folder named '{}' already exists in managed_src", base_name));
+        }
+        copy_dir_recursive(backup_src, &dest)?;
 
-    let dest = dest_parent.join(&folder);
-    if dest.exists() {
-        return Err(format!("A folder named '{}' already exists", folder));
+        if entry.enabled {
+            let tgt_root = crate::mods::tgt_root(mod_path);
+            let link_parent = if entry.category == "Uncategorized" {
+                tgt_root
+            } else {
+                tgt_root.join(&entry.category)
+            };
+            fs::create_dir_all(&link_parent).map_err(|e| e.to_string())?;
+            let link = link_parent.join(base_name);
+            crate::symlink::create_dir_symlink(&dest, &link)?;
+        }
+    } else {
+        // Legacy layout: recreate with DISABLED_ prefix when disabled.
+        let folder = if entry.enabled {
+            base_name.to_string()
+        } else {
+            format!("{}{}", crate::mods::DISABLED_PREFIX, base_name)
+        };
+        let dest_parent = if entry.category == "Uncategorized" {
+            PathBuf::from(mod_path)
+        } else {
+            PathBuf::from(mod_path).join(&entry.category)
+        };
+        fs::create_dir_all(&dest_parent).map_err(|e| e.to_string())?;
+        let dest = dest_parent.join(&folder);
+        if dest.exists() {
+            return Err(format!("A folder named '{}' already exists", folder));
+        }
+        copy_dir_recursive(backup_src, &dest)?;
     }
 
-    copy_dir_recursive(backup_src, &dest)?;
     Ok(())
 }
 

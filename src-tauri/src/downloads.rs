@@ -385,9 +385,23 @@ pub async fn resolve_conflict(
     let overwrite = action == ConflictResolution::Overwrite;
     let content_root = content_root_dir(&id);
     let dest = PathBuf::from(&existing_path);
+    let mod_path_clone = item.mod_path.clone();
+    let category_hint_clone = item.category_hint.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
         let final_dest = if overwrite {
+            // For symlink layout we must remove the symlink in managed_tgt too.
+            if crate::mods::is_symlink_layout(&mod_path_clone) {
+                let tgt_root = crate::mods::tgt_root(&mod_path_clone);
+                let mod_name = dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let link = match &category_hint_clone {
+                    Some(cat) => tgt_root.join(sanitize_component(cat)).join(&mod_name),
+                    None => tgt_root.join(&mod_name),
+                };
+                if crate::symlink::is_symlink(&link) {
+                    crate::symlink::remove_symlink(&link)?;
+                }
+            }
             fs::remove_dir_all(&dest)
                 .map_err(|e| format!("Failed to remove existing folder: {}", e))?;
             dest
@@ -395,6 +409,24 @@ pub async fn resolve_conflict(
             unique_sibling_path(&dest)
         };
         move_dir(&content_root, &final_dest)?;
+
+        // For symlink layout: create/recreate symlink after placing content.
+        if crate::mods::is_symlink_layout(&mod_path_clone) {
+            let tgt_root = crate::mods::tgt_root(&mod_path_clone);
+            let mod_name = final_dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let link = match &category_hint_clone {
+                Some(cat) => tgt_root.join(sanitize_component(cat)).join(&mod_name),
+                None => tgt_root.join(&mod_name),
+            };
+            if let Some(parent) = link.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            if crate::symlink::is_symlink(&link) {
+                crate::symlink::remove_symlink(&link)?;
+            }
+            crate::symlink::create_dir_symlink(&final_dest, &link)?;
+        }
+
         Ok(final_dest)
     })
     .await
@@ -582,33 +614,33 @@ async fn finish_install(app: &AppHandle, item: &DownloadItem, dest: &Path) -> Re
         let _ = save_preview_image(&client, &url, &dest).await;
     }
 
-    // Persist the GameBanana origin link so update tracking (Phase 8) can
-    // later check if a newer version exists without the user having to
-    // manually identify which GB page each installed mod came from.
-    let mod_folder_name = dest
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let category = item
-        .category_hint
-        .as_deref()
-        .filter(|c| !c.is_empty())
-        .unwrap_or("Uncategorized");
-    let mod_key = format!("{}/{}", category, mod_folder_name);
+    // Derive the mod key. For the symlink layout `dest` is inside managed_src,
+    // so we strip the managed_src prefix to get the category/name components.
+    // For the legacy layout `dest` is directly under mod_path (or a category subdir).
+    let mod_key = if crate::mods::is_symlink_layout(&item.mod_path) {
+        let src_root = crate::mods::src_root(&item.mod_path);
+        let relative = dest.strip_prefix(&src_root).unwrap_or(dest);
+        // relative is either "<cat>/<name>" or just "<name>"
+        relative.to_string_lossy().replace('\\', "/").to_string()
+    } else {
+        let mod_folder_name = dest
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let category = item
+            .category_hint
+            .as_deref()
+            .filter(|c| !c.is_empty())
+            .unwrap_or("Uncategorized");
+        format!("{}/{}", category, mod_folder_name)
+    };
 
-    // Look up the installed file's version string from the download history
-    // itself — we don't have it on DownloadItem directly, but we can query
-    // GB for it. Since we just downloaded from this exact file_id, the
-    // version info is whatever was displayed in the detail panel when the
-    // user clicked Download. We don't re-fetch here; just pass None if we
-    // don't have it cached (the file_id comparison is what matters for
-    // update detection, not the version string).
     let _ = crate::update_tracking::link_mod(
         &item.game_id,
         &mod_key,
         item.mod_id,
         item.file_id,
-        None, // version string not available without a re-fetch; file_id is sufficient
+        None,
     );
 
     cleanup_staging(&item.id);
@@ -857,14 +889,28 @@ enum Placement {
 /// extracted content in staging untouched and returns `Placement::Conflict`
 /// so the caller can pause for user input — `resolve_conflict` picks the
 /// content back up from staging via `content_root_dir` once resolved.
-/// Runs synchronously — invoke via `spawn_blocking`.
+///
+/// When the symlink layout is active for this game (`managed_src` exists),
+/// the content is placed into `managed_src/<category>/<name>` and a symlink
+/// is created in `managed_tgt/<category>/<name>` so the mod is immediately
+/// visible to the loader without needing a separate enable step.
+///
+/// Runs synchronously — callers should invoke via `spawn_blocking`.
 fn plan_placement(item: &DownloadItem) -> Result<Placement, String> {
     let content_root = find_content_root(&extracted_dir(&item.id));
-
     let mod_root = PathBuf::from(&item.mod_path);
+
+    if crate::mods::is_symlink_layout(&item.mod_path) {
+        plan_placement_symlink(item, &content_root, &mod_root)
+    } else {
+        plan_placement_legacy(item, &content_root, &mod_root)
+    }
+}
+
+fn plan_placement_legacy(item: &DownloadItem, content_root: &Path, mod_root: &Path) -> Result<Placement, String> {
     let dest_parent = match &item.category_hint {
         Some(category) => mod_root.join(sanitize_component(category)),
-        None => mod_root,
+        None => mod_root.to_path_buf(),
     };
     let dest = dest_parent.join(sanitize_component(&item.mod_name));
 
@@ -872,9 +918,49 @@ fn plan_placement(item: &DownloadItem) -> Result<Placement, String> {
         Ok(Placement::Conflict(dest))
     } else {
         fs::create_dir_all(&dest_parent).map_err(|e| e.to_string())?;
-        move_dir(&content_root, &dest)?;
+        move_dir(content_root, &dest)?;
         Ok(Placement::Clear(dest))
     }
+}
+
+fn plan_placement_symlink(item: &DownloadItem, content_root: &Path, _mod_root: &Path) -> Result<Placement, String> {
+    let src_root = crate::mods::src_root(&item.mod_path);
+    let tgt_root = crate::mods::tgt_root(&item.mod_path);
+
+    let (src_parent, tgt_parent) = match &item.category_hint {
+        Some(category) => {
+            let cat = sanitize_component(category);
+            (src_root.join(&cat), tgt_root.join(&cat))
+        }
+        None => (src_root.clone(), tgt_root.clone()),
+    };
+
+    let mod_name = sanitize_component(&item.mod_name);
+    let src_dest = src_parent.join(&mod_name);
+    let link_dest = tgt_parent.join(&mod_name);
+
+    // Conflict check: if the source folder already exists we pause.
+    if src_dest.exists() {
+        // Return the src path as the conflict — overwrite/rename logic operates
+        // on it, and finish_install will re-create the symlink afterwards.
+        return Ok(Placement::Conflict(src_dest));
+    }
+
+    // Move extracted content into managed_src.
+    fs::create_dir_all(&src_parent).map_err(|e| e.to_string())?;
+    move_dir(content_root, &src_dest)?;
+
+    // Create the symlink in managed_tgt so the mod is active immediately.
+    fs::create_dir_all(&tgt_parent).map_err(|e| e.to_string())?;
+    // Remove stale link if somehow one already exists (e.g. from a cancelled install).
+    if crate::symlink::is_symlink(&link_dest) {
+        crate::symlink::remove_symlink(&link_dest)?;
+    }
+    crate::symlink::create_dir_symlink(&src_dest, &link_dest)?;
+
+    // Return the src_dest as the installed path so finish_install, key
+    // derivation, and update tracking all point at the stable managed_src location.
+    Ok(Placement::Clear(src_dest))
 }
 
 /// Descend through single-child directory wrappers (a very common archive

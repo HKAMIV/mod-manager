@@ -34,6 +34,40 @@ export interface ModInfo {
   file_count: number;
   size_bytes: number;
   modified_at: number | null;
+  /** True when this mod is managed under the Phase 12 symlink layout
+   *  (managed_src / managed_tgt). False = legacy DISABLED_ rename model. */
+  using_symlink_layout: boolean;
+}
+
+// --- Phase 12: Symlink layout ---
+
+/** Current layout state of a game's mod directory. */
+export interface LayoutStatus {
+  mod_path: string;
+  /** True when managed_src already exists — symlink layout is active. */
+  is_symlink_layout: boolean;
+  /** True when legacy DISABLED_-style mods are present and not yet migrated. */
+  has_legacy_mods: boolean;
+  /** Number of legacy mods that would be migrated. */
+  legacy_mod_count: number;
+}
+
+/** Per-mod outcome entry inside MigrationResult. */
+export interface ModMigrationEntry {
+  key: string;
+  was_enabled: boolean;
+  success: boolean;
+  error: string | null;
+}
+
+/** Result returned by migrate_to_symlink_layout. */
+export interface MigrationResult {
+  migrated_count: number;
+  skipped_count: number;
+  errors: string[];
+  entries: ModMigrationEntry[];
+  /** ID of the restore point taken before migration, if any. */
+  restore_point_id: string | null;
 }
 
 export type ModStatusFilter = "all" | "enabled" | "disabled";

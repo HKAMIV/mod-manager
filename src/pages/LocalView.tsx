@@ -6,6 +6,7 @@ import ModCard from "../components/ModCard";
 import PresetBar from "../components/PresetBar";
 import ConflictBanner from "../components/ConflictBanner";
 import RestorePointsPanel from "../components/RestorePointsPanel";
+import SymlinkMigrationBanner from "../components/SymlinkMigrationBanner";
 import {
   Search,
   SlidersHorizontal,
@@ -55,6 +56,10 @@ function LocalView() {
     toggleError,
     conflicts,
     conflictingIds,
+    layoutStatus,
+    migrating,
+    migrationError,
+    migrateToSymlinkLayout,
   } = useMods();
 
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -222,6 +227,17 @@ function LocalView() {
           conflicts={conflicts}
           onDisable={handleDisableConflicting}
           disablingId={togglingId}
+        />
+      )}
+
+      {/* Phase 12: symlink layout migration prompt — shown when legacy mods
+          are detected and the symlink layout is not yet active. Opt-in only. */}
+      {modPath && layoutStatus && !layoutStatus.is_symlink_layout && layoutStatus.has_legacy_mods && (
+        <SymlinkMigrationBanner
+          layoutStatus={layoutStatus}
+          migrating={migrating}
+          migrationError={migrationError}
+          onMigrate={migrateToSymlinkLayout}
         />
       )}
 

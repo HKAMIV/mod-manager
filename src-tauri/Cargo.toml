@@ -1,6 +1,6 @@
 [package]
 name = "mod-manager"
-version = "0.10.0"
+version = "0.11.0"
 description = "A mod manager for Arch Linux and SteamOS"
 authors = ["you"]
 edition = "2021"
