@@ -701,14 +701,21 @@ pub(crate) fn folder_name(path: &Path) -> String {
 }
 
 /// Strip the `DISABLED_` prefix (case-insensitive).
+///
+/// Uses `to_ascii_uppercase` on the prefix-length char slice rather than
+/// raw byte indexing, which would panic if a multi-byte UTF-8 character
+/// (e.g. a CJK character in a mod folder name) straddles the byte boundary.
 pub fn strip_disabled_prefix(name: &str) -> &str {
-    if name.len() >= DISABLED_PREFIX.len()
-        && name[..DISABLED_PREFIX.len()].eq_ignore_ascii_case(DISABLED_PREFIX)
-    {
-        &name[DISABLED_PREFIX.len()..]
-    } else {
-        name
+    // DISABLED_PREFIX is pure ASCII so its byte length == its char length.
+    // We collect only that many *chars* from `name` to avoid slicing mid-char.
+    let prefix_chars = DISABLED_PREFIX.len(); // 9 — all ASCII bytes
+    let char_boundary: Option<usize> = name.char_indices().nth(prefix_chars).map(|(i, _)| i);
+    if let Some(end) = char_boundary {
+        if name[..end].eq_ignore_ascii_case(DISABLED_PREFIX) {
+            return &name[end..];
+        }
     }
+    name
 }
 
 /// Human-readable display name from a raw folder name: strip prefix + convert
@@ -787,6 +794,18 @@ mod tests {
         assert_eq!(strip_disabled_prefix("disabled_Foo"), "Foo");
         assert_eq!(strip_disabled_prefix("DISABLED_Foo"), "Foo");
         assert_eq!(strip_disabled_prefix("Foo"), "Foo");
+    }
+
+    #[test]
+    fn strip_disabled_prefix_safe_with_multibyte_utf8() {
+        // '丨' is a 3-byte UTF-8 character. A naive byte-index slice of
+        // DISABLED_PREFIX.len() (9) into this string would panic because byte 9
+        // falls inside the second '丨' (bytes 9..12). This must not panic.
+        let name = "丨丨丨some_mod";
+        assert_eq!(strip_disabled_prefix(name), name); // no prefix → unchanged
+        // A mod folder name that starts with multi-byte chars and is shorter
+        // than DISABLED_PREFIX.len() in bytes must also be safe.
+        assert_eq!(strip_disabled_prefix("丨"), "丨");
     }
 
     #[test]
