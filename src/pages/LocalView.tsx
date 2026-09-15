@@ -148,7 +148,12 @@ function LocalView() {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setAddModOpen(true)}
-            disabled={!modPath}
+            disabled={!modPath || !layoutStatus?.is_symlink_layout}
+            title={
+              layoutStatus && !layoutStatus.is_symlink_layout
+                ? "Migrate this game to the symlink layout to add mods manually"
+                : undefined
+            }
             className="game-control flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-text-secondary hover:text-game hover:bg-surface-2 disabled:opacity-40 transition-colors"
             aria-label="Add mod"
           >

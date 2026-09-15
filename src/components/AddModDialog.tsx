@@ -170,6 +170,9 @@ export default function AddModDialog({
             <h2 className="font-display text-lg font-semibold text-text-primary mt-0.5">
               Install from disk
             </h2>
+            <p className="text-xs text-text-muted mt-0.5">
+              Installs into the managed store with a symlink — enabled by default.
+            </p>
           </div>
           <button
             onClick={onClose}

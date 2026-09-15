@@ -2,16 +2,24 @@
 //!
 //! Provides two entry points:
 //!
-//! - `install_mod_from_folder`: copy/move an existing folder on disk into the
-//!   game's mod directory (legacy or symlink layout).
+//! - `install_mod_from_folder`: copy an existing folder on disk into the
+//!   game's mod store.
 //! - `install_mod_from_archive`: extract a .zip/.7z/.rar archive and install
 //!   the content as a mod, using the same wrapper-folder descent logic the
 //!   download pipeline uses so single-extra-folder archives Just Work.
 //!
+//! ## Symlink layout only
+//!
+//! Manual installation requires the Phase 12 symlink layout to be active for
+//! the target game (i.e. `DISABLED_managed_src` exists). The legacy
+//! `DISABLED_`-rename layout is intentionally NOT supported here — new mods
+//! always land in the source store with an in-place symlink so 3DMigoto/XXMI
+//! path-keyed settings stay stable. If a game hasn't been migrated yet, the
+//! install is rejected with a message telling the user to migrate first.
+//!
 //! Both functions:
 //!   - Accept a `category` string — empty means "Uncategorized".
 //!   - Accept a `mod_name` override — empty means "use the source folder name".
-//!   - Respect the current layout (legacy or symlink) of the game's mod dir.
 //!   - Return the newly created `ModInfo` so the frontend can optimistically
 //!     add it without a full rescan.
 //!   - Reject destination collisions rather than silently overwriting, so the
@@ -29,9 +37,21 @@ use std::path::{Path, PathBuf};
 pub struct InstallResult {
     /// The newly installed mod.
     pub mod_info: ModInfo,
-    /// Absolute path where the mod files now live (inside managed_src for
-    /// symlink layout, directly in the category folder for legacy).
+    /// Absolute path where the mod files now live (inside `DISABLED_managed_src`).
     pub installed_path: String,
+}
+
+/// Shared precondition: manual install is only supported on the symlink layout.
+fn require_symlink_layout(mod_path: &str) -> Result<(), String> {
+    if mods::is_symlink_layout(mod_path) {
+        Ok(())
+    } else {
+        Err(
+            "This game isn't using the symlink layout yet. Migrate it from the Local Mods \
+             page (the \"Upgrade to Symlink Layout\" banner) before adding mods manually."
+                .to_string(),
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -39,12 +59,12 @@ pub struct InstallResult {
 // ---------------------------------------------------------------------------
 
 /// Install a mod by copying an existing folder on disk into the game's mod
-/// directory. The source folder is **copied** (not moved) so the user's
-/// original is left intact.
+/// store. The source folder is **copied** (not moved) so the user's original
+/// is left intact.
 ///
 /// # Arguments
 /// * `source_path` — absolute path to the folder to install.
-/// * `mod_path`    — the game's configured mod directory.
+/// * `mod_path`    — the game's configured mod directory (must be symlink layout).
 /// * `category`    — category subfolder name. Pass `""` for Uncategorized.
 /// * `mod_name`    — display/folder name to use. Pass `""` to derive from source.
 pub fn install_mod_from_folder(
@@ -53,6 +73,8 @@ pub fn install_mod_from_folder(
     category: &str,
     mod_name: &str,
 ) -> Result<InstallResult, String> {
+    require_symlink_layout(mod_path)?;
+
     let src = Path::new(source_path);
     if !src.exists() {
         return Err(format!("Source folder does not exist: {}", source_path));
@@ -64,13 +86,12 @@ pub fn install_mod_from_folder(
     let name = derive_name(src, mod_name);
     let dest = compute_dest(mod_path, category, &name)?;
 
-    // Copy source → destination (never move — user keeps their original).
+    // Copy source → destination in managed_src (never move — user keeps their original).
     copy_dir_recursive(src, &dest)?;
 
-    // For the symlink layout: also create the in-place symlink.
-    if mods::is_symlink_layout(mod_path) {
-        create_inplace_symlink(mod_path, category, &name, &dest)?;
-    }
+    // Create the in-place symlink so 3DMigoto/XXMI sees the mod at its
+    // expected path and it's enabled by default.
+    create_inplace_symlink(mod_path, category, &name, &dest)?;
 
     let effective_category = if category.is_empty() { "Uncategorized" } else { category };
     let info = build_mod_info_at(&dest, effective_category)
@@ -83,13 +104,13 @@ pub fn install_mod_from_folder(
 }
 
 /// Install a mod by extracting an archive (.zip / .7z / .rar) into the game's
-/// mod directory. Uses the same single-wrapper-folder descent as the download
+/// mod store. Uses the same single-wrapper-folder descent as the download
 /// pipeline so archives like `Furina_v2.zip → Furina_v2/ → mod.ini` work
 /// without an extra nesting level.
 ///
 /// # Arguments
 /// * `archive_path` — absolute path to the archive file.
-/// * `mod_path`     — the game's configured mod directory.
+/// * `mod_path`     — the game's configured mod directory (must be symlink layout).
 /// * `category`     — category subfolder name. Pass `""` for Uncategorized.
 /// * `mod_name`     — display/folder name to use. Pass `""` to derive from archive stem.
 pub fn install_mod_from_archive(
@@ -98,6 +119,8 @@ pub fn install_mod_from_archive(
     category: &str,
     mod_name: &str,
 ) -> Result<InstallResult, String> {
+    require_symlink_layout(mod_path)?;
+
     let archive = Path::new(archive_path);
     if !archive.exists() {
         return Err(format!("Archive does not exist: {}", archive_path));
@@ -139,8 +162,7 @@ pub fn install_mod_from_archive(
         sanitize_component(mod_name)
     };
 
-    let dest = compute_dest(mod_path, category, &name);
-    let dest = match dest {
+    let dest = match compute_dest(mod_path, category, &name) {
         Ok(d) => d,
         Err(e) => {
             let _ = fs::remove_dir_all(&staging);
@@ -148,7 +170,7 @@ pub fn install_mod_from_archive(
         }
     };
 
-    // Move extracted content to destination.
+    // Move extracted content into managed_src.
     if let Err(e) = move_dir(&content_root, &dest) {
         let _ = fs::remove_dir_all(&staging);
         return Err(e);
@@ -158,10 +180,8 @@ pub fn install_mod_from_archive(
     // staging root itself may still exist).
     let _ = fs::remove_dir_all(&staging);
 
-    // For the symlink layout: create the in-place symlink.
-    if mods::is_symlink_layout(mod_path) {
-        create_inplace_symlink(mod_path, category, &name, &dest)?;
-    }
+    // Create the in-place symlink so the mod is active immediately.
+    create_inplace_symlink(mod_path, category, &name, &dest)?;
 
     let effective_category = if category.is_empty() { "Uncategorized" } else { category };
     let info = build_mod_info_at(&dest, effective_category)
@@ -191,17 +211,13 @@ fn derive_name(source: &Path, override_name: &str) -> String {
     }
 }
 
-/// Compute the destination path and confirm it doesn't already exist.
+/// Compute the destination path inside `DISABLED_managed_src` and confirm it
+/// doesn't already exist. The in-place symlink at `mod_path/[category/]name`
+/// is created separately by `create_inplace_symlink`.
 ///
-/// For the **legacy** layout: `mod_path/[category/]name`
-/// For the **symlink** layout: `mod_path/DISABLED_managed_src/[category/]name`
-/// (the in-place symlink at `mod_path/[category/]name` is created separately).
+/// Caller must have already verified the symlink layout is active.
 fn compute_dest(mod_path: &str, category: &str, name: &str) -> Result<PathBuf, String> {
-    let base = if mods::is_symlink_layout(mod_path) {
-        mods::src_root(mod_path)
-    } else {
-        PathBuf::from(mod_path)
-    };
+    let base = mods::src_root(mod_path);
 
     let parent = if category.is_empty() || category == "Uncategorized" {
         base
@@ -227,12 +243,12 @@ fn compute_dest(mod_path: &str, category: &str, name: &str) -> Result<PathBuf, S
     Ok(dest)
 }
 
-/// For the symlink layout, create the in-place symlink at
-/// `mod_path/[category/]name` → `DISABLED_managed_src/[category/]name`.
+/// Create the in-place symlink at `mod_path/[category/]name` →
+/// `DISABLED_managed_src/[category/]name`.
 ///
 /// The symlink makes the mod immediately visible to 3DMigoto/XXMI at its
-/// expected path (same as the legacy layout would use), so ini keys remain
-/// stable and the mod is enabled by default after install.
+/// expected path, so ini keys remain stable and the mod is enabled by
+/// default after install.
 fn create_inplace_symlink(
     mod_path: &str,
     category: &str,
@@ -306,9 +322,17 @@ mod tests {
         dir
     }
 
+    /// A mod root with the symlink layout activated.
+    fn symlink_mod_root() -> PathBuf {
+        let root = temp_dir();
+        fs::create_dir_all(root.join(mods::MANAGED_SRC)).unwrap();
+        root
+    }
+
+    #[cfg(unix)]
     #[test]
-    fn install_from_folder_into_legacy_layout_with_category() {
-        let mod_root = temp_dir();
+    fn install_from_folder_places_in_managed_src_with_category() {
+        let mod_root = symlink_mod_root();
         let source = make_source("Furina");
 
         let result = install_mod_from_folder(
@@ -319,25 +343,35 @@ mod tests {
         )
         .expect("install should succeed");
 
-        // Files land at mod_root/Characters/Furina
-        let dest = mod_root.join("Characters").join("Furina");
-        assert!(dest.join("mod.ini").exists());
-        assert_eq!(fs::read_to_string(dest.join("mod.ini")).unwrap(), "source-mod-data");
+        // Real files land in DISABLED_managed_src/Characters/Furina.
+        let src_dest = mod_root
+            .join(mods::MANAGED_SRC)
+            .join("Characters")
+            .join("Furina");
+        assert!(src_dest.join("mod.ini").exists());
+        assert_eq!(fs::read_to_string(src_dest.join("mod.ini")).unwrap(), "source-mod-data");
         // Source is left intact (copy, not move).
         assert!(source.join("mod.ini").exists(), "user's original must be untouched");
+
+        // In-place symlink created so 3DMigoto sees it.
+        let link = mod_root.join("Characters").join("Furina");
+        assert!(crate::symlink::is_symlink(&link), "in-place symlink should exist");
+        assert!(link.join("mod.ini").exists(), "files reachable through the symlink");
 
         assert_eq!(result.mod_info.category, "Characters");
         assert_eq!(result.mod_info.name, "Furina");
         assert!(result.mod_info.enabled);
-        assert!(!result.mod_info.using_symlink_layout);
+        assert!(result.mod_info.using_symlink_layout);
+        assert!(result.installed_path.contains(mods::MANAGED_SRC));
 
         fs::remove_dir_all(&mod_root).ok();
         fs::remove_dir_all(source.parent().unwrap()).ok();
     }
 
+    #[cfg(unix)]
     #[test]
     fn install_from_folder_uncategorized_when_category_blank() {
-        let mod_root = temp_dir();
+        let mod_root = symlink_mod_root();
         let source = make_source("SomeReshade");
 
         let result = install_mod_from_folder(
@@ -348,18 +382,21 @@ mod tests {
         )
         .expect("install should succeed");
 
-        // Uncategorized mods sit directly under mod_root.
-        let dest = mod_root.join("SomeReshade");
-        assert!(dest.join("mod.ini").exists());
+        // Uncategorized mods sit directly under managed_src.
+        let src_dest = mod_root.join(mods::MANAGED_SRC).join("SomeReshade");
+        assert!(src_dest.join("mod.ini").exists());
         assert_eq!(result.mod_info.category, "Uncategorized");
+        // In-place symlink directly under mod_root.
+        assert!(crate::symlink::is_symlink(&mod_root.join("SomeReshade")));
 
         fs::remove_dir_all(&mod_root).ok();
         fs::remove_dir_all(source.parent().unwrap()).ok();
     }
 
+    #[cfg(unix)]
     #[test]
     fn install_from_folder_uses_name_override() {
-        let mod_root = temp_dir();
+        let mod_root = symlink_mod_root();
         let source = make_source("raw_folder_name");
 
         let result = install_mod_from_folder(
@@ -370,16 +407,21 @@ mod tests {
         )
         .expect("install should succeed");
 
-        assert!(mod_root.join("Characters").join("Nicer Display Name").exists());
+        assert!(mod_root
+            .join(mods::MANAGED_SRC)
+            .join("Characters")
+            .join("Nicer Display Name")
+            .exists());
         assert_eq!(result.mod_info.name, "Nicer Display Name");
 
         fs::remove_dir_all(&mod_root).ok();
         fs::remove_dir_all(source.parent().unwrap()).ok();
     }
 
+    #[cfg(unix)]
     #[test]
     fn install_from_folder_rejects_duplicate_name() {
-        let mod_root = temp_dir();
+        let mod_root = symlink_mod_root();
         let source = make_source("Furina");
 
         install_mod_from_folder(source.to_str().unwrap(), mod_root.to_str().unwrap(), "Characters", "")
@@ -398,37 +440,22 @@ mod tests {
         fs::remove_dir_all(source.parent().unwrap()).ok();
     }
 
-    #[cfg(unix)]
     #[test]
-    fn install_from_folder_into_symlink_layout_creates_inplace_symlink() {
+    fn install_rejected_on_non_symlink_layout() {
+        // A plain mod root with no managed_src → not symlink layout.
         let mod_root = temp_dir();
-        // Activate symlink layout by creating the managed_src dir.
-        fs::create_dir_all(mod_root.join(mods::MANAGED_SRC)).unwrap();
         let source = make_source("Furina");
 
-        let result = install_mod_from_folder(
+        let err = install_mod_from_folder(
             source.to_str().unwrap(),
             mod_root.to_str().unwrap(),
             "Characters",
             "",
-        )
-        .expect("install should succeed");
-
-        // Real files land inside DISABLED_managed_src.
-        let src_dest = mod_root
-            .join(mods::MANAGED_SRC)
-            .join("Characters")
-            .join("Furina");
-        assert!(src_dest.join("mod.ini").exists(), "source files should be in managed_src");
-
-        // In-place symlink is created at mod_root/Characters/Furina so 3DMigoto sees it.
-        let link = mod_root.join("Characters").join("Furina");
-        assert!(crate::symlink::is_symlink(&link), "in-place symlink should exist");
-        assert!(link.join("mod.ini").exists(), "files reachable through the symlink");
-
-        assert!(result.mod_info.using_symlink_layout);
-        assert!(result.mod_info.enabled);
-        assert!(result.installed_path.contains(mods::MANAGED_SRC));
+        );
+        assert!(err.is_err(), "install must be rejected without symlink layout");
+        assert!(err.unwrap_err().contains("symlink layout"));
+        // Nothing should have been created.
+        assert!(!mod_root.join("Characters").exists());
 
         fs::remove_dir_all(&mod_root).ok();
         fs::remove_dir_all(source.parent().unwrap()).ok();
@@ -436,7 +463,7 @@ mod tests {
 
     #[test]
     fn install_from_archive_rejects_unsupported_extension() {
-        let mod_root = temp_dir();
+        let mod_root = symlink_mod_root();
         let bogus = temp_dir().join("mod.tar.gz");
         write_file(&bogus, "not a supported archive");
 
@@ -453,9 +480,10 @@ mod tests {
         fs::remove_dir_all(bogus.parent().unwrap()).ok();
     }
 
+    #[cfg(unix)]
     #[test]
     fn install_from_archive_extracts_zip_and_descends_wrapper_folder() {
-        let mod_root = temp_dir();
+        let mod_root = symlink_mod_root();
         let staging = temp_dir();
         let archive_path = staging.join("Furina_v2.zip");
 
@@ -479,11 +507,16 @@ mod tests {
         )
         .expect("archive install should succeed");
 
-        // Content root descended past WrapperFolder, so mod.ini is at the top.
-        let dest = mod_root.join("Characters").join("Furina_v2");
-        assert!(dest.join("mod.ini").exists(), "mod.ini should be directly in the mod folder");
-        assert_eq!(fs::read_to_string(dest.join("mod.ini")).unwrap(), "archive-mod-data");
+        // Content root descended past WrapperFolder; files in managed_src.
+        let src_dest = mod_root
+            .join(mods::MANAGED_SRC)
+            .join("Characters")
+            .join("Furina_v2");
+        assert!(src_dest.join("mod.ini").exists(), "mod.ini should be directly in the mod folder");
+        assert_eq!(fs::read_to_string(src_dest.join("mod.ini")).unwrap(), "archive-mod-data");
         assert_eq!(result.mod_info.name, "Furina v2");
+        // In-place symlink created.
+        assert!(crate::symlink::is_symlink(&mod_root.join("Characters").join("Furina_v2")));
 
         fs::remove_dir_all(&mod_root).ok();
         fs::remove_dir_all(&staging).ok();
