@@ -7,6 +7,7 @@ import PresetBar from "../components/PresetBar";
 import ConflictBanner from "../components/ConflictBanner";
 import RestorePointsPanel from "../components/RestorePointsPanel";
 import SymlinkMigrationBanner from "../components/SymlinkMigrationBanner";
+import AddModDialog from "../components/AddModDialog";
 import {
   Search,
   SlidersHorizontal,
@@ -22,6 +23,7 @@ import {
   History,
   ArrowUpCircle,
   Trash2,
+  FolderPlus,
 } from "lucide-react";
 import type { ModInfo, ModStatusFilter } from "../types";
 
@@ -69,6 +71,7 @@ function LocalView() {
   const [batchWorking, setBatchWorking] = useState(false);
   const [restorePanelOpen, setRestorePanelOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [addModOpen, setAddModOpen] = useState(false);
 
   const { updates, checking: updateChecking, updateCount, checkNow: checkForUpdates } =
     useUpdateCheck();
@@ -144,6 +147,15 @@ function LocalView() {
         </div>
         <div className="flex items-center gap-1.5">
           <button
+            onClick={() => setAddModOpen(true)}
+            disabled={!modPath}
+            className="game-control flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-text-secondary hover:text-game hover:bg-surface-2 disabled:opacity-40 transition-colors"
+            aria-label="Add mod"
+          >
+            <FolderPlus size={15} />
+            Add Mod
+          </button>
+          <button
             onClick={() => setRestorePanelOpen(true)}
             disabled={!modPath}
             className="game-control flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-text-secondary hover:text-game2 hover:bg-surface-2 disabled:opacity-40 transition-colors"
@@ -178,6 +190,15 @@ function LocalView() {
         <RestorePointsPanel
           onClose={() => setRestorePanelOpen(false)}
           onRestored={refresh}
+        />
+      )}
+
+      {addModOpen && modPath && (
+        <AddModDialog
+          gameId={activeGame}
+          existingCategories={categories}
+          onInstalled={() => refresh()}
+          onClose={() => setAddModOpen(false)}
         />
       )}
 

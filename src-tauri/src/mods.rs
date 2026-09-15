@@ -125,11 +125,31 @@ pub fn tgt_root(mod_path: &str) -> PathBuf {
 // Scanning
 // ---------------------------------------------------------------------------
 
+/// Build a `ModInfo` for an arbitrary path+category, dispatching to the
+/// correct builder based on whether the path is inside `DISABLED_managed_src`.
+/// Used by the manual install pipeline to return a `ModInfo` without a full
+/// rescan.
+pub fn build_mod_info_at(path: &Path, category: &str) -> Option<ModInfo> {
+    if is_inside_managed_src(path) {
+        // Enabled state: check if the in-place symlink exists.
+        let mod_name = folder_name(path);
+        let mod_root = find_mod_path_from_src(path)?;
+        let link = if category == "Uncategorized" {
+            mod_root.join(&mod_name)
+        } else {
+            mod_root.join(category).join(&mod_name)
+        };
+        let enabled = symlink::is_symlink(&link) || link.exists();
+        build_symlink_mod_info(&path.to_path_buf(), category, enabled)
+    } else {
+        build_legacy_mod_info(&path.to_path_buf(), category)
+    }
+}
+
 /// Scan a game's mod directory and return the list of detected mods.
 ///
 /// Automatically dispatches to the symlink-layout scanner if `managed_src`
-/// exists, otherwise uses the legacy `DISABLED_`-prefix scanner.
-///
+/// exists, otherwise uses the legacy `DISABLED_`-prefix scanner.///
 /// Both scanners produce the same `ModInfo` shape so all callers
 /// (presets, restore points, conflict detection, …) work transparently.
 pub fn scan_mods(mod_path: &str) -> Result<Vec<ModInfo>, String> {
@@ -221,7 +241,7 @@ fn scan_symlink_layout(mod_path: &str) -> Result<Vec<ModInfo>, String> {
 // ModInfo construction
 // ---------------------------------------------------------------------------
 
-fn build_legacy_mod_info(path: &PathBuf, category: &str) -> Option<ModInfo> {
+pub(crate) fn build_legacy_mod_info(path: &PathBuf, category: &str) -> Option<ModInfo> {
     let folder = folder_name(path);
     if folder.is_empty() || folder.starts_with('.') {
         return None;
@@ -256,7 +276,7 @@ fn build_legacy_mod_info(path: &PathBuf, category: &str) -> Option<ModInfo> {
     })
 }
 
-fn build_symlink_mod_info(src_path: &PathBuf, category: &str, enabled: bool) -> Option<ModInfo> {
+pub(crate) fn build_symlink_mod_info(src_path: &PathBuf, category: &str, enabled: bool) -> Option<ModInfo> {
     let folder = folder_name(src_path);
     if folder.is_empty() || folder.starts_with('.') {
         return None;
@@ -330,7 +350,7 @@ pub fn set_mod_enabled(path: &str, category: &str, enabled: bool) -> Result<ModI
 
 /// Returns true when `path` is rooted inside a `managed_src` directory,
 /// i.e. the mod belongs to the symlink layout.
-fn is_inside_managed_src(path: &Path) -> bool {
+pub(crate) fn is_inside_managed_src(path: &Path) -> bool {
     path.components().any(|c| c.as_os_str() == MANAGED_SRC)
 }
 
@@ -429,7 +449,7 @@ fn set_mod_enabled_symlink(src_path: &Path, category: &str, enabled: bool) -> Re
 
 /// Walk up from a path inside `managed_src` to find the `mod_path` root.
 /// e.g. `/mods/managed_src/Characters/Furina` → `/mods`
-fn find_mod_path_from_src(path: &Path) -> Option<PathBuf> {
+pub(crate) fn find_mod_path_from_src(path: &Path) -> Option<PathBuf> {
     let mut current = path;
     loop {
         if let Some(parent) = current.parent() {

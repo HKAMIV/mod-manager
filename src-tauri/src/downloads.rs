@@ -764,7 +764,7 @@ async fn download_archive(
 
 /// Extract a downloaded archive to `dest` based on its file extension.
 /// Runs synchronously — callers should invoke this via `spawn_blocking`.
-fn extract_archive(archive: &Path, dest: &Path) -> Result<(), String> {
+pub(crate) fn extract_archive(archive: &Path, dest: &Path) -> Result<(), String> {
     fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let ext = archive
         .extension()
@@ -968,7 +968,7 @@ fn plan_placement_symlink(item: &DownloadItem, content_root: &Path, _mod_root: &
 /// folder) to find the folder that actually contains the mod's files.
 /// Capped at a shallow depth so a pathological/malicious archive can't cause
 /// unbounded recursion.
-fn find_content_root(extracted: &Path) -> PathBuf {
+pub(crate) fn find_content_root(extracted: &Path) -> PathBuf {
     let mut current = extracted.to_path_buf();
     for _ in 0..5 {
         let Ok(entries) = fs::read_dir(&current) else {
@@ -998,7 +998,7 @@ fn find_content_root(extracted: &Path) -> PathBuf {
 /// recursive copy + delete since the staging dir (XDG data dir) and a user's
 /// configured mod directory are not guaranteed to share a filesystem (e.g. a
 /// Steam Deck SD card), where `rename` fails with EXDEV.
-fn move_dir(src: &Path, dest: &Path) -> Result<(), String> {
+pub(crate) fn move_dir(src: &Path, dest: &Path) -> Result<(), String> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -1031,7 +1031,7 @@ fn unique_sibling_path(dest: &Path) -> PathBuf {
 /// Strip characters that are invalid (or awkward) in folder names on common
 /// filesystems, collapse whitespace, and fall back to a generic name if
 /// nothing usable is left after sanitizing.
-fn sanitize_component(name: &str) -> String {
+pub(crate) fn sanitize_component(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .map(|c| match c {

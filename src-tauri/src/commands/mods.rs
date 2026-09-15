@@ -1,3 +1,8 @@
+use crate::install::{
+    install_mod_from_archive as install_archive,
+    install_mod_from_folder as install_folder,
+    InstallResult,
+};
 use crate::migration::{get_layout_status, migrate_to_symlink_layout, LayoutStatus, MigrationResult};
 use crate::mods::{batch_delete_mods, batch_set_enabled, delete_mod, scan_mods, set_mod_enabled, BatchDeleteResult, BatchToggleResult, ModInfo, ToggleTarget};
 use crate::state::AppState;
@@ -86,4 +91,34 @@ pub fn migrate_to_symlink_layout_cmd(
 ) -> Result<MigrationResult, String> {
     let mod_path = resolve_mod_path(&state, &game_id)?;
     migrate_to_symlink_layout(&game_id, &mod_path, with_restore_point)
+}
+
+// ---------------------------------------------------------------------------
+// Manual mod installation
+// ---------------------------------------------------------------------------
+
+/// Install a mod by copying a folder the user chose from disk.
+#[tauri::command]
+pub fn install_mod_from_folder(
+    state: State<AppState>,
+    game_id: String,
+    source_path: String,
+    category: String,
+    mod_name: String,
+) -> Result<InstallResult, String> {
+    let mod_path = resolve_mod_path(&state, &game_id)?;
+    install_folder(&source_path, &mod_path, &category, &mod_name)
+}
+
+/// Install a mod by extracting an archive (.zip / .7z / .rar) the user chose.
+#[tauri::command]
+pub fn install_mod_from_archive(
+    state: State<AppState>,
+    game_id: String,
+    archive_path: String,
+    category: String,
+    mod_name: String,
+) -> Result<InstallResult, String> {
+    let mod_path = resolve_mod_path(&state, &game_id)?;
+    install_archive(&archive_path, &mod_path, &category, &mod_name)
 }

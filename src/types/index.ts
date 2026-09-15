@@ -70,6 +70,14 @@ export interface MigrationResult {
   restore_point_id: string | null;
 }
 
+// --- Manual install ---
+
+/** Returned by install_mod_from_folder and install_mod_from_archive. */
+export interface InstallResult {
+  mod_info: ModInfo;
+  installed_path: string;
+}
+
 export type ModStatusFilter = "all" | "enabled" | "disabled";
 
 export interface ToggleTarget {
