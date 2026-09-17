@@ -1,6 +1,6 @@
 {
   "productName": "Mod Manager",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "identifier": "com.modmanager.app",
   "build": {
     "frontendDist": "../dist",
