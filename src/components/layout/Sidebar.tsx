@@ -133,7 +133,7 @@ function Sidebar() {
       <div className="p-3 border-t border-surface-3">
         {!sidebarCollapsed ? (
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-text-muted font-mono">v0.1.0</p>
+            <p className="text-[11px] text-text-muted font-mono">v{__APP_VERSION__}</p>
             <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-accent shadow-glow-accent animate-pulse-glow" />
               Ready

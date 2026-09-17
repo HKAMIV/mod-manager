@@ -1,12 +1,22 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { readFileSync } from "fs";
 
 const host = process.env.TAURI_DEV_HOST;
+
+// Read the app version from package.json so the UI always shows the real
+// current version without a hardcoded string that drifts out of date.
+const pkgVersion = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
+).version as string;
 
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
