@@ -78,39 +78,8 @@ jobs:
           name: macos-bundles
           path: src-tauri/target/release/bundle/dmg/*.dmg
 
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install frontend deps
-        run: npm ci
-
-      - name: Build Tauri (Windows)
-        run: npx tauri build --bundles nsis
-
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-bundles
-          path: src-tauri/target/release/bundle/nsis/*-setup.exe
-
   create-release:
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,12 +96,6 @@ jobs:
           name: macos-bundles
           path: artifacts/macos
 
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-bundles
-          path: artifacts/windows
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -140,4 +103,3 @@ jobs:
           files: |
             artifacts/linux/**/*
             artifacts/macos/**/*
-            artifacts/windows/**/*
