@@ -2,6 +2,7 @@ mod commands;
 mod downloads;
 mod gamebanana;
 mod hotkeys;
+mod ini;
 mod install;
 mod migration;
 mod mods;
@@ -42,6 +43,8 @@ pub fn run() {
             commands::mods::migrate_to_symlink_layout_cmd,
             commands::mods::install_mod_from_folder,
             commands::mods::install_mod_from_archive,
+            commands::mods::read_mod_inis,
+            commands::mods::update_mod_hashes,
             commands::watcher::watch_mod_directory,
             commands::watcher::unwatch_mod_directory,
             commands::presets::list_presets,

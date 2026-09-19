@@ -285,3 +285,60 @@ export interface UpdateInfo {
   latest_download_url: string;
   latest_filesize: number;
 }
+
+
+// --- INI Tools (Phase 13) ---
+
+/** A keybinding declared in a `[Key*]` / `[KeySwap*]` section of a mod ini. */
+export interface IniKeybind {
+  /** Section it was declared in (e.g. "KeySwap", "KeyToggleGlow"). */
+  section: string;
+  /** Raw `key =` value (e.g. "VK_DOWN"), if present. */
+  key: string | null;
+  /** Friendly-translated `key` (e.g. "↓ Arrow"). */
+  key_label: string | null;
+  /** Raw `back =` value (reverse-cycle key), if present. */
+  back: string | null;
+  /** Friendly-translated `back`. */
+  back_label: string | null;
+  /** `type =` value: "cycle" / "toggle" / "hold", if present. */
+  bind_type: string | null;
+  /** Command-list variable this key drives (e.g. "$swapvar"), if any. */
+  variable: string | null;
+  /** Value list assigned to `variable` (e.g. "0,1,2"), if any. */
+  values: string | null;
+}
+
+/** A `hash = <value>` occurrence, with a locator for targeted edits. */
+export interface IniHash {
+  /** Section the hash belongs to (e.g. "TextureOverrideFurinaBody"). */
+  section: string;
+  /** Current hash value. */
+  value: string;
+  /** 0-based line index in the parsed file — used to target the edit. */
+  line_index: number;
+}
+
+/** One mod ini file, parsed for display. */
+export interface ModIniFile {
+  /** Absolute path to the ini file (used to target hash edits). */
+  path: string;
+  /** Path relative to the mod folder, for display (e.g. "mod.ini"). */
+  relative_path: string;
+  keybinds: IniKeybind[];
+  hashes: IniHash[];
+}
+
+/** A staged hash edit sent to `update_mod_hashes`. */
+export interface HashEdit {
+  ini_path: string;
+  line_index: number;
+  new_value: string;
+}
+
+/** Result of a batch hash update. */
+export interface HashUpdateResult {
+  files_written: number;
+  hashes_changed: number;
+  errors: string[];
+}

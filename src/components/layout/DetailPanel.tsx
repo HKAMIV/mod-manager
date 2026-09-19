@@ -1,6 +1,10 @@
+import { useMemo, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
-import { X, ImageOff, Folder, FileStack, HardDrive, Clock } from "lucide-react";
+import { useModInis } from "../../hooks/useModInis";
+import { X, ImageOff, Folder, FileStack, HardDrive, Clock, Keyboard, Hash } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import KeybindsTab from "../ini/KeybindsTab";
+import HashesTab from "../ini/HashesTab";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -18,22 +22,39 @@ function formatDate(unixSeconds: number | null): string {
   });
 }
 
+type Tab = "details" | "keybinds" | "hashes";
+
 function DetailPanel() {
   const { toggleDetailPanel, selectedMod } = useAppStore();
+  const [tab, setTab] = useState<Tab>("details");
+
   const previewSrc = selectedMod?.preview_path
     ? convertFileSrc(selectedMod.preview_path)
     : null;
+
+  // Load the mod's ini files (keybinds + hashes). Fetches on mod change,
+  // cached per path. Passing null when no mod is selected clears it.
+  const { files, loading, error, refresh, saveHashEdits } = useModInis(
+    selectedMod?.path ?? null
+  );
+
+  const keybindCount = useMemo(
+    () => files.reduce((n, f) => n + f.keybinds.length, 0),
+    [files]
+  );
+  const hashCount = useMemo(
+    () => files.reduce((n, f) => n + f.hashes.length, 0),
+    [files]
+  );
 
   return (
     <aside className="relative w-80 h-full bg-surface-1/90 backdrop-blur-xl flex flex-col">
       <div className="absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-game/60 to-transparent" />
 
       {/* Header */}
-      <div className="flex flex-col gap-2 p-4 border-b border-surface-3">
+      <div className="flex flex-col gap-3 p-4 border-b border-surface-3">
         <div className="flex items-center justify-between">
-          <span className="hud-label text-xs text-text-secondary">
-            Mod Details
-          </span>
+          <span className="hud-label text-xs text-text-secondary">Mod Details</span>
           <button
             onClick={toggleDetailPanel}
             className="p-1 rounded hover:bg-surface-2 text-text-secondary hover:text-text-primary transition-colors"
@@ -42,10 +63,43 @@ function DetailPanel() {
             <X size={16} />
           </button>
         </div>
-        <div className="hud-rule" />
+
+        {/* Tabs — only shown when a mod is selected */}
+        {selectedMod && (
+          <div className="flex items-center gap-1">
+            <TabButton
+              active={tab === "details"}
+              onClick={() => setTab("details")}
+              label="Details"
+            />
+            <TabButton
+              active={tab === "keybinds"}
+              onClick={() => setTab("keybinds")}
+              icon={<Keyboard size={12} />}
+              label="Keybinds"
+              count={keybindCount}
+            />
+            <TabButton
+              active={tab === "hashes"}
+              onClick={() => setTab("hashes")}
+              icon={<Hash size={12} />}
+              label="Hashes"
+              count={hashCount}
+            />
+          </div>
+        )}
       </div>
 
-      {selectedMod ? (
+      {!selectedMod ? (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-2">
+            <div className="game-panel mx-auto w-10 h-10 bg-game/10 border border-game/30 flex items-center justify-center shadow-glow-game">
+              <span className="w-1.5 h-1.5 rounded-full bg-game animate-pulse-glow" />
+            </div>
+            <p className="text-sm text-text-muted">Select a mod to view details</p>
+          </div>
+        </div>
+      ) : tab === "details" ? (
         <div className="flex-1 overflow-y-auto">
           {/* Preview */}
           <div className="aspect-video bg-surface-2 flex items-center justify-center overflow-hidden">
@@ -104,19 +158,49 @@ function DetailPanel() {
             </div>
           </div>
         </div>
+      ) : tab === "keybinds" ? (
+        <KeybindsTab files={files} loading={loading} error={error} onRetry={refresh} />
       ) : (
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center space-y-2">
-            <div className="game-panel mx-auto w-10 h-10 bg-game/10 border border-game/30 flex items-center justify-center shadow-glow-game">
-              <span className="w-1.5 h-1.5 rounded-full bg-game animate-pulse-glow" />
-            </div>
-            <p className="text-sm text-text-muted">
-              Select a mod to view details
-            </p>
-          </div>
-        </div>
+        <HashesTab files={files} loading={loading} error={error} onSave={saveHashEdits} onRetry={refresh} />
       )}
     </aside>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  label,
+  icon,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon?: React.ReactNode;
+  count?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`game-control flex items-center gap-1 px-2 py-1 text-[11px] font-medium border transition-colors ${
+        active
+          ? "bg-game/15 border-game/40 text-game"
+          : "bg-surface-1 border-surface-3 text-text-secondary hover:text-text-primary"
+      }`}
+    >
+      {icon}
+      {label}
+      {count !== undefined && count > 0 && (
+        <span
+          className={`ml-0.5 px-1 rounded-full text-[9px] leading-tight ${
+            active ? "bg-game/25 text-game" : "bg-surface-2 text-text-muted"
+          }`}
+        >
+          {count}
+        </span>
+      )}
+    </button>
   );
 }
 

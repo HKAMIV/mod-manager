@@ -3,6 +3,7 @@ use crate::install::{
     install_mod_from_folder as install_folder,
     InstallResult,
 };
+use crate::ini::{self, HashEdit, HashUpdateResult, ModIniFile};
 use crate::migration::{get_layout_status, migrate_to_symlink_layout, LayoutStatus, MigrationResult};
 use crate::mods::{batch_delete_mods, batch_set_enabled, delete_mod, scan_mods, set_mod_enabled, BatchDeleteResult, BatchToggleResult, ModInfo, ToggleTarget};
 use crate::state::AppState;
@@ -121,4 +122,26 @@ pub fn install_mod_from_archive(
 ) -> Result<InstallResult, String> {
     let mod_path = resolve_mod_path(&state, &game_id)?;
     install_archive(&archive_path, &mod_path, &category, &mod_name)
+}
+
+
+// ---------------------------------------------------------------------------
+// Phase 13 — INI tools (keybind display + manual hash updater)
+// ---------------------------------------------------------------------------
+
+/// Read every mod ini in the given mod folder, returning each file's keybinds
+/// (translated) and hash entries. `mod_path` is a specific mod's folder path
+/// (i.e. `ModInfo.path`), not the game's mod root. Local mods only.
+#[tauri::command]
+pub fn read_mod_inis(mod_path: String) -> Result<Vec<ModIniFile>, String> {
+    ini::read_mod_inis(&mod_path)
+}
+
+/// Apply a batch of staged hash edits. Each edit locates one `hash =` line by
+/// its ini file path + line index (as returned by `read_mod_inis`) and
+/// replaces its value. Every touched file is backed up to `<file>.ini.bak`
+/// before being rewritten. Returns per-file/per-edit results.
+#[tauri::command]
+pub fn update_mod_hashes(edits: Vec<HashEdit>) -> Result<HashUpdateResult, String> {
+    Ok(ini::update_mod_hashes(&edits))
 }

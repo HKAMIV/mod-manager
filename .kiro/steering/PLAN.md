@@ -30,6 +30,7 @@ The visual identity ("Void & Astral") is locked in and enforced via `.kiro/steer
 - [x] Mod deletion
 - [x] Conflict detection & resolution (passive, category-based heuristic — see Phase 4)
 - [x] Restore points — backup & restore mod state snapshots (state-only or full file backup)
+- [x] Manual mod install — add a mod from a local folder or archive, symlink-layout only (see Phase 12 follow-up)
 
 ### 2. Online Mode (GameBanana Integration)
 
@@ -62,22 +63,22 @@ The visual identity ("Void & Astral") is locked in and enforced via `.kiro/steer
 ### 6. UI/UX
 
 - [x] Multi-panel layout (sidebar nav, main content, detail panel)
+- [x] Smooth animations/transitions (page-enter keyframe, toggle-pop — Phase 9)
 - [ ] Responsive/adaptive layout
-- [ ] Smooth animations/transitions
-- [ ] Customizable sidebar/panel configuration
-- [ ] Hotkey support for presets
+- [ ] Customizable sidebar/panel configuration (sidebar collapses; drag-to-resize deferred)
+- [x] Hotkey support for presets (global shortcuts — Phase 3)
 - [ ] Global search
 - [ ] Paste-a-link to open mod in online mode
-- [ ] Gamepad-friendly navigation (Steam Deck)
+- [ ] Gamepad-friendly navigation (Steam Deck) — deferred, needs hardware testing
 
 ### 7. Configuration & Settings
 
 - [x] Per-game path configuration
 - [x] Auto-reload mod lists on filesystem changes (implemented in Phase 2 via `notify` watcher)
 - [x] NSFW content filter for online browsing
-- [ ] Auto-launch game via mod loader (Proton/Wine compatible)
+- [ ] Auto-launch game via mod loader (Proton/Wine compatible) — deferred to Phase 11
 - [x] Custom hotkeys for presets
-- [ ] Import/Export entire app config
+- [x] Import/Export entire app config (JSON via dialog — Phase 9)
 - [x] XDG-compliant config paths (`~/.config/mod-manager/`)
 
 ### 8. Self-Update System
@@ -86,12 +87,30 @@ The visual identity ("Void & Astral") is locked in and enforced via `.kiro/steer
 - [ ] Changelog viewer
 - [ ] In-app download & install of new versions
 
+Note: not built as an in-app updater. Distribution is handled by the CI release
+pipeline (Phase 10) which publishes AppImage/.deb/.dmg per tagged release; users
+update by downloading a new build.
+
 ### 9. Packaging & Distribution
 
-- [ ] Arch Linux PKGBUILD
-- [ ] Flatpak manifest
-- [ ] AppImage
-- [ ] `.desktop` file and icon integration
+- [x] Arch Linux PKGBUILD
+- [ ] Flatpak manifest — deferred
+- [x] AppImage (built by the release workflow on tag)
+- [x] `.desktop` file and icon integration
+- [x] CI: test on push (Linux + macOS), release pipeline builds AppImage/.deb/.dmg on tag
+
+### 10. INI Tools (3DMigoto) — see Phase 13
+
+- [x] INI reader/writer foundation — line-preserving parse + targeted write
+      (keeps comments/blanks/spacing), `.ini.bak` backup before any write
+- [x] Keybind display (read-only) — surface `[Key*]`/`[KeySwap*]` bindings
+      (key, back, type, driven variable/values) with `VK_*` → friendly-label
+      translation, in a detail-panel tab
+- [x] Hash updater (manual) — list every `hash =` per ini/section, stage edits,
+      one explicit Save writing all pending edits per file (backup first)
+- [ ] Keybind rebinding (write) — deferred; display-only for now
+- [ ] Cross-mod hash copy — deferred; section names aren't stable across mods,
+      needs keyword/slot-type heuristic matching (see Phase 13 notes)
 
 ---
 
@@ -103,11 +122,12 @@ The visual identity ("Void & Astral") is locked in and enforced via `.kiro/steer
 | Frontend | React + TypeScript + Vite | Fast dev, component ecosystem |
 | Styling | Tailwind CSS | Rapid UI, responsive utilities |
 | State | Zustand | Lightweight, pairs well with Tauri commands |
-| Archive handling | `sevenz-rust` + system `unzip` fallback | No Windows binary dependency |
+| Archive handling | `zip` + `sevenz-rust2` + `unrar` crates | zip/7z/rar, no external binary dependency |
 | HTTP | `reqwest` (Rust) | Async downloads with progress streams |
 | FS watching | `notify` crate | Cross-platform filesystem watcher |
-| Hotkeys | `evdev` / `libxkbcommon` | Linux-native input handling |
-| Packaging | PKGBUILD + Flatpak + AppImage | Full Arch/SteamOS coverage |
+| Hotkeys | `tauri-plugin-global-shortcut` | Cross-platform global shortcuts |
+| Symlinks | `std::os::unix::fs::symlink` | Phase 12 mod store (source/link split) |
+| Packaging | PKGBUILD + AppImage + CI release pipeline | Arch/SteamOS coverage (Linux + macOS CI) |
 
 ---
 
@@ -443,16 +463,24 @@ empty-game fallback.
 
 ---
 
-### Phase 10 — Packaging & Distribution
+### Phase 10 — Packaging & Distribution [DONE]
 
 **Goal:** Distributable packages for Arch Linux ecosystem.
 
-- [ ] Arch `PKGBUILD` — installable via `makepkg`
-- [ ] Flatpak manifest — sandboxed distribution
-- [ ] AppImage — portable single-file distribution
-- [ ] `.desktop` file with proper categories and icon
-- [ ] XDG icon installation (multiple sizes)
-- [ ] Self-update mechanism — check GitHub Releases, download + replace
+- [x] Arch `PKGBUILD` — installable via `makepkg`
+- [x] AppImage — portable single-file distribution (built on tag by the release workflow)
+- [x] `.desktop` file with proper categories and icon
+- [x] GitHub Actions: CI (test on push, Linux + macOS) + release pipeline
+      (AppImage/.deb/.dmg on tag). Windows was briefly added then removed —
+      out of scope for an Arch/SteamOS project.
+- [ ] Flatpak manifest — deferred
+- [ ] XDG icon installation at multiple sizes — partial (icons ship in the bundle)
+- [ ] Self-update mechanism — not built; users update by downloading a new
+      tagged release (see Section 8)
+
+Fixed a SteamOS white-screen bug: relative asset base (`base: ""` in Vite) so
+the Tauri custom protocol resolves assets on older WebKitGTK, plus an AppImage
+DMABUF-renderer opt-out.
 
 ---
 
@@ -467,75 +495,150 @@ empty-game fallback.
 
 ---
 
-### Phase 12 — Symlink-Based Mod Management (Architecture Evolution)
+### Phase 12 — Symlink-Based Mod Management (Architecture Evolution) [DONE]
 
 **Goal:** Stop invalidating 3DMigoto/XXMI persistent per-mod settings when
 toggling mods, by decoupling "where mod files physically live" from "what the
 mod loader sees."
 
-**The problem with the current `DISABLED_` rename approach.** 3DMigoto (the
-engine XXMI/GIMI/SRMI/WWMI/ZZMI wrap) stores persistent per-mod state — toggle
+**The problem with the `DISABLED_` rename approach.** 3DMigoto (the engine
+XXMI/GIMI/SRMI/WWMI/ZZMI wrap) stores persistent per-mod state — toggle
 positions, active variant of a key-swappable mod, `$active`-style command-list
 vars — in `d3dx_user.ini` next to the loader, **keyed by the mod's file path**
-(e.g. `$\mods\characters\furina\ = 1`). Our Phase 3 toggle renames the folder
+(e.g. `$\mods\characters\furina\ = 1`). The Phase 3 toggle renames the folder
 (`Furina` -> `DISABLED_Furina`), which silently orphans every setting keyed to
 the old path. The user loses their configured variant/toggle state every time
-they disable and re-enable a mod. For simple on/off mods this is invisible; for
-the increasingly common key-swap/toggle mods it's a real data-loss bug.
+they disable and re-enable a mod.
 
-**The approach (borrowed from Integrated Mod Manager, verified against its
-source).** Split the mod store into two directories and connect them with
-symlinks:
+**The approach as actually built (revised from the original two-tree plan).**
+The plan originally called for a separate `managed_tgt` symlink tree living
+alongside the source. During implementation this proved wrong: 3DMigoto under
+Proton/Wine resolves symlinks to their real target path when building ini keys,
+so a symlink in a separate tree would still key settings against the hidden
+source path — same bug, one level removed. The shipped design instead uses
+**in-place symlinks** so the loader sees the exact same path it always did:
 
-- **Source** (`managed_src`, lives under our data dir): the real mod files,
-  organized by category, never moved once installed. This is the stable
-  identity for a mod.
-- **Target** (`managed_tgt`, lives inside the game's actual mod folder that the
-  loader reads): a tree of **symlinks** pointing back into source.
+```text
+mod_path/
+  DISABLED_managed_src/       ← real mod files; DISABLED_ prefix hides it from XXMI
+    Characters/Furina/         (never moved once installed — stable identity)
+  Characters/
+    Furina  →  ../DISABLED_managed_src/Characters/Furina   (symlink = enabled)
+    (no symlink for a disabled mod)
+```
 
-Enabling a mod = create a symlink in target. Disabling = remove the symlink.
-The physical files never move, so `d3dx_user.ini`'s path-keyed settings stay
-valid across unlimited enable/disable cycles. This also makes toggling near-
-instant (no large-folder renames/moves on disk) and makes a mod folder on a
-slow SD card behave the same as one on an internal drive.
+Enable = create the in-place symlink at `mod_path/Category/Name`. Disable =
+remove it. 3DMigoto scans `Characters/Furina` exactly as before, so its ini key
+stays `$\...\characters\furina\` across unlimited enable/disable cycles. The
+real files never move, so path-keyed settings survive. Detection: a game is on
+the symlink layout iff `DISABLED_managed_src` exists in its mod dir; both layouts
+coexist per-game.
 
-**Why this is worth a dedicated phase, not a patch:** it changes the core mod
-identity model that Phases 2-9 were all built on (`ModInfo.path`,
-`ModInfo.key`, the `DISABLED_` prefix convention, preset apply, restore points,
-conflict detection, and download placement all assume the rename model). It
-needs a careful migration path so existing users' mod folders aren't broken.
+- [x] Cross-platform symlink primitives (`symlink.rs`): `create_dir_symlink`,
+      `remove_symlink`, `is_symlink`. Unix via `std::os::unix::fs::symlink`;
+      Windows via `symlink_dir` with a clear Developer-Mode error on
+      `ERROR_PRIVILEGE_NOT_HELD`. Linux exFAT `EPERM` surfaced with an
+      actionable "reformat as ext4" message.
+- [x] Rework `mods.rs` scan/toggle to dual-layout: `scan_mods` auto-dispatches
+      (symlink layout reads `DISABLED_managed_src`, enabled = in-place symlink
+      exists; legacy still reads the flat `DISABLED_` tree). `set_mod_enabled`
+      dispatches on whether the path is inside `DISABLED_managed_src`.
+      `ModInfo` gained `using_symlink_layout`; in the symlink layout `id`/`path`
+      are stable across toggle (only the symlink changes).
+- [x] `d3dx_user.ini` key migration + backup — `migrate_d3dx_ini_keys` rewrites
+      matching `$\mods\<oldpath>` keys after writing a `.ini.bak` backup;
+      char-safe (no byte-index slicing — fixed a multi-byte-UTF-8 panic).
+- [x] Migration path (`migration.rs`) — detects a legacy flat mod folder and
+      offers conversion via the `SymlinkMigrationBanner`. Never auto-converts;
+      takes an optional restore point first (per Phase 5). `get_layout_status`
+      + `migrate_to_symlink_layout` commands; per-mod `MigrationResult`.
+- [x] Update downstream consumers: preset apply and restore points go through
+      `set_mod_enabled`/`scan_mods` so they work transparently on either layout;
+      restore-point recreation places into `DISABLED_managed_src` + symlink;
+      download placement installs into `DISABLED_managed_src` and creates the
+      in-place symlink.
+- [x] Symlink caveats surfaced: Windows Developer-Mode requirement and Linux
+      exFAT unsupported-filesystem both produce clear, actionable errors rather
+      than a cryptic OS code or silent copy fallback.
+- [ ] ~~Separate `managed_tgt` symlink tree~~ — dropped; replaced by in-place
+      symlinks (see rationale above), since 3DMigoto resolves symlinks to the
+      real path when keying settings.
+- [ ] Live-reload trigger (send 3DMigoto's F10 reload so toggles apply without a
+      game restart) — deferred; not required for the core "settings survive"
+      guarantee and needs per-platform input injection (`ydotool`/`xdotool` on
+      Linux with a Wayland focus workaround).
 
-- [ ] Rust `create_symlink` command (`symlink_dir`/`symlink_file` on Windows,
-      `std::os::unix::fs::symlink` on Unix) — the one genuinely new primitive.
-- [ ] Rework `mods.rs` scan/toggle to the source/target model: scan reads
-      `managed_src`, enabled-state is "does a symlink exist in `managed_tgt`"
-      rather than "is the folder prefixed `DISABLED_`".
-- [ ] `d3dx_user.ini` key migration + backup — on any operation that *does*
-      move a real path (install, category re-org), rewrite the matching
-      `$\mods\<oldpath>` keys to the new path, after copying the ini to
-      `d3dx_user_pre_imm.ini.bak` first (mirrors IMM's safety step).
-- [ ] Live-reload trigger — send 3DMigoto's reload hotkey (F10) to the game so
-      toggles apply without a game restart. Windows: `keybd_event`. Linux:
-      `ydotool`/`xdotool` with a Wayland focus-bounce workaround (see IMM's
-      `hotreload.rs`). Gated behind a setting; dependency-checked on Linux.
-- [ ] Migration path — detect an existing `DISABLED_`-style flat mod folder on
-      first run of the new version and offer to convert it to the source/target
-      symlink layout (with a restore point taken first, per Phase 5's safety
-      principle). Never auto-convert silently.
-- [ ] Update every downstream consumer of the rename model: preset apply
-      (toggle = symlink add/remove), restore points (snapshot = which symlinks
-      exist), conflict detection (unchanged — still category-based), and
-      download placement (install into `managed_src`, symlink into
-      `managed_tgt`).
-- [ ] Windows symlink caveat: creating symlinks historically needed admin or
-      Developer Mode. Detect and surface a clear message if symlink creation
-      fails, rather than silently falling back to copies.
+**Manual mod install (Phase 12 follow-up).** Added an "Add Mod" flow
+(`install.rs` + `AddModDialog`): install a mod from a local folder (copied,
+original left intact) or a `.zip`/`.7z`/`.rar` archive (extracted, wrapper
+folders descended). Reuses the download pipeline's extraction/placement
+utilities. **Symlink-layout only** — legacy support was intentionally removed;
+the "Add Mod" button is disabled (with a tooltip) until the game is migrated,
+and the backend rejects the operation on an unmigrated game. New mods land in
+`DISABLED_managed_src` with an in-place symlink, enabled by default.
 
-Rationale note: this is deliberately sequenced last because it's the highest-
-risk change in the project — it touches the foundational mod model. Everything
-before it delivers a fully working manager on the simpler rename model; this
-phase is the upgrade that makes the app safe for the mods that carry their own
-persistent 3DMigoto settings.
+Backend tests: `symlink.rs`, `mods.rs` (symlink scan/toggle/delete + ini
+migration + multi-byte safety), `migration.rs` (layout status, migration,
+post-migration scan), and `install.rs` (folder/archive install into managed_src,
+name override, duplicate rejection, non-symlink-layout rejection, wrapper-folder
+descent). 73 Rust unit tests total; tsc/vite/cargo clean.
+
+---
+
+### Phase 13 — INI Tools (3DMigoto) [DONE]
+
+**Goal:** Let users inspect and repair a mod's 3DMigoto `.ini` files from inside
+the app — see the toggle keys a mod binds (most mods ship no in-game menu), and
+patch the asset hashes that break when the game updates.
+
+**Background — the 3DMigoto `.ini` shape.** A mod's `.ini` is INI-style sections.
+Two parts matter here:
+- `[Key*]` / `[KeySwap*]` sections carry `key =` / `back =` bindings plus a
+  `type` (cycle/toggle/hold) and the variable they drive (`$swapvar = 0,1,2`) —
+  the keybinds idea #1 surfaces.
+- `hash = <value>` lines inside `[TextureOverride*]` / `[ShaderOverride*]`
+  sections are the game-asset fingerprints that go stale on a game update —
+  what idea #2 lets the user repair.
+
+**Scope (agreed):** local mods only (a mod's inis don't exist until downloaded,
+so this has no place in the online view). Both features read through **one**
+`read_mod_inis` command (a mod usually has 1–5 tiny inis; parse them all in one
+IPC round-trip, cache per mod path, fetch async on mod-select so the panel never
+blocks). The detail panel becomes **tabbed**: "Mod Details" / "Keybinds" /
+"Hashes".
+
+- [x] INI foundation (`ini.rs`) — parse into ordered sections/lines preserving
+      comments, blank lines, and spacing; targeted single-value rewrite (only the
+      touched line changes); `.ini.bak` written before any modification. Round-trip
+      + comment-preservation unit tests.
+- [x] `read_mod_inis(mod_path)` command — per ini file: keybinds (section label,
+      translated `key`/`back`, type, driven variable + values) and hashes
+      (section, current value, line locator for targeted update).
+- [x] `VK_*` / DirectInput → friendly-label translation table (e.g. `VK_DOWN`
+      → "↓ Arrow"), so keybinds read plainly.
+- [x] Keybinds tab (read-only) — file selector (defaults to "All files" for the
+      approachable case; per-file for users who navigate by ini), keys grouped by
+      file, each showing type + translated key/back ("Cycle: ↓ Arrow", "Hold: F").
+- [x] Hashes tab (manual repair) — file selector, sections listing current hash
+      with an inline edit that **stages** changes; explicit **Save** flushes all
+      staged edits via `update_mod_hashes` (batch, one `.ini.bak` per touched
+      file, all-or-nothing feel), Discard clears staging. Framed clearly as
+      "paste the corrected hash you found" — no auto-fix promise, since a wrong
+      hash silently no-ops.
+- [ ] ~~Keybind rebinding (writes)~~ — deferred; display-only this phase.
+- [ ] ~~Cross-mod hash copy~~ — deferred. Tempting (pull fresh hashes from an
+      updated/working mod for the same character), but section names aren't stable
+      across mods, so it can't join on section name — needs a heuristic match
+      (section-name keyword similarity, slot/texture-type grouping, or matching on
+      a shared old hash value). Its own feature, not a freebie.
+
+**Safety:** every write goes through the line-preserving writer with a
+`.ini.bak` backup first, mirroring the `d3dx_user.ini` migration already in
+`mods.rs`. Nothing rewrites a whole file or reflows a user's formatting.
+
+**Deliverable:** in the Local Mods detail panel, selecting a mod shows its inis;
+the Keybinds tab lists every bound key with a readable label, and the Hashes tab
+lets the user stage + Save corrected hashes with an automatic backup.
 
 ---
 
@@ -543,12 +646,13 @@ persistent 3DMigoto settings.
 
 | Concern | Approach |
 |---------|----------|
-| Archive extraction | `sevenz-rust` crate (no external binary needed) + system `unzip` fallback |
+| Archive extraction | `zip` + `sevenz-rust2` + `unrar` crates (no external binary needed) |
 | Mod loader compatibility | XXMI via Proton/Wine; document setup steps |
 | Filesystem | Case-sensitive ext4/btrfs — handle folder naming carefully |
-| SteamOS read-only root | Install to `~/.local/` or use Flatpak |
-| Global hotkeys | `evdev` for Wayland, X11 bindings for Xorg |
-| Gamepad input | Standard Linux gamepad evdev; Steam Input handles mapping |
+| Symlink support | ext4/btrfs OK; exFAT rejected with a clear "reformat as ext4" message |
+| SteamOS read-only root | Install to `~/.local/`; only ever write under XDG dirs + the user's mod folder |
+| Global hotkeys | `tauri-plugin-global-shortcut` |
+| Gamepad input | Standard Linux gamepad evdev; Steam Input handles mapping (nav not yet built) |
 | Config location | `~/.config/mod-manager/` (XDG_CONFIG_HOME) |
 | Data location | `~/.local/share/mod-manager/` (XDG_DATA_HOME) |
 | Permissions | No root required for normal operation |
@@ -568,6 +672,14 @@ persistent 3DMigoto settings.
 | Phase 7 — Downloads | Done | Sequential download queue + auto-extract (zip/7z/rar) + smart placement + conflict resolution UI. macOS App Nap opt-out so background downloads don't stall when the window isn't focused. 11 new Rust unit tests (42 total), tsc/vite/cargo all pass |
 | Phase 8 — Update Tracking | Done | Per-game origin manifest, sequential GB API check with rate limiting, gold update badge on ModCard, auto-link on install. 4 new Rust unit tests (46 total), tsc/vite/cargo all pass |
 | Phase 9 — Polish/SteamOS | Done | Mod deletion (batch, with path-safety + confirmation), page transitions (CSS keyframe), import/export config (JSON), auto-reload already wired. 2 new Rust unit tests (48 total), tsc/vite/cargo clean |
-| Phase 10 — Packaging | Done | GitHub Actions CI (test on push) + release pipeline (AppImage/.deb/.dmg on tag), PKGBUILD, .desktop file. Shipped v0.1.2. Fixed SteamOS white screen (relative asset base + AppImage DMABUF-renderer opt-out) |
+| Phase 10 — Packaging | Done | GitHub Actions CI (test on push, Linux + macOS) + release pipeline (AppImage/.deb/.dmg on tag), PKGBUILD, .desktop file. Fixed SteamOS white screen (relative asset base + AppImage DMABUF-renderer opt-out). Windows added then removed as out of scope |
 | Phase 11 — Stretch | Not Started | |
-| Phase 12 — Symlink Mod Mgmt | Not Started | Architecture evolution: source/target split + symlinks so toggling never invalidates 3DMigoto path-keyed settings in `d3dx_user.ini`. Highest-risk change — sequenced last |
+| Phase 12 — Symlink Mod Mgmt | Done | In-place symlink layout (`DISABLED_managed_src` + symlinks in the category folders, not a separate `managed_tgt` tree) so toggling never invalidates 3DMigoto path-keyed settings. Opt-in migration with restore point + `d3dx_user.ini` key rewrite. Plus manual mod install (folder/archive, symlink-layout only). 73 Rust unit tests, tsc/vite/cargo clean. Live-reload F10 trigger deferred |
+| Phase 13 — INI Tools | Done | Tabbed detail panel (Details/Keybinds/Hashes). Line-preserving `ini.rs` parser+writer; read-only keybind display with `VK_*` translation (drops `no_*` negation modifiers); manual hash updater (stage + explicit Save, non-colliding `.bak`/`.bak.2`/… backups). Local mods only. 21 new Rust unit tests (94 total), tsc/vite/cargo clean. Rebinding + cross-mod hash copy deferred |
+
+**Current version: v0.13.0.** Phase 13 (INI Tools) shipped: tabbed mod detail
+panel with read-only keybind display (`VK_*` translation) and a manual,
+staged-then-Save hash updater, both on a line-preserving `ini.rs` parser/writer
+that backs up to `.ini.bak` before any write. Earlier 0.12.x work: SteamOS exFAT
+symlink error message, multi-byte UTF-8 folder-name panic fix, sidebar version
+read from `package.json` at build time, Windows removed from CI/release.
