@@ -1,6 +1,6 @@
 {
   "productName": "Mod Manager",
-  "version": "0.13.3",
+  "version": "0.14.0",
   "identifier": "com.modmanager.app",
   "build": {
     "frontendDist": "../dist",
@@ -31,10 +31,19 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5RkVBOEEzMzcwMzRDRjkKUldUNVRBTTNvNmorK1VrOTZ5UDRhSHllOGluZDlFc2E2YW5OVy9mYVJqclRzZUt3Q29RVWJicGwK",
+      "endpoints": [
+        "https://github.com/HKAMIV/mod-manager/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

@@ -3,6 +3,7 @@ import { useAppStore } from "./stores/appStore";
 import Sidebar from "./components/layout/Sidebar";
 import MainContent from "./components/layout/MainContent";
 import DetailPanel from "./components/layout/DetailPanel";
+import AppUpdateBanner from "./components/AppUpdateBanner";
 import { invoke } from "./lib/invoke";
 import type { Settings } from "./types";
 
@@ -23,6 +24,7 @@ function App() {
       <Sidebar />
       <MainContent />
       {detailPanelOpen && <DetailPanel />}
+      <AppUpdateBanner />
     </div>
   );
 }

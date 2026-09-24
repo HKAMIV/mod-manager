@@ -81,15 +81,12 @@ The visual identity ("Void & Astral") is locked in and enforced via `.kiro/steer
 - [x] Import/Export entire app config (JSON via dialog — Phase 9)
 - [x] XDG-compliant config paths (`~/.config/mod-manager/`)
 
-### 8. Self-Update System
+### 8. Self-Update System — see Phase 14 [DONE]
 
-- [ ] Auto-update checker (GitHub Releases)
-- [ ] Changelog viewer
-- [ ] In-app download & install of new versions
-
-Note: not built as an in-app updater. Distribution is handled by the CI release
-pipeline (Phase 10) which publishes AppImage/.deb/.dmg per tagged release; users
-update by downloading a new build.
+- [x] Auto-update checker (GitHub Releases) — check on startup, notify, don't force
+- [x] Changelog viewer — render the release's auto-generated notes in-app
+- [x] In-app download & install of new versions — one-click for AppImage/macOS
+      via `tauri-plugin-updater`; `.deb` falls back to a release download link
 
 ### 9. Packaging & Distribution
 
@@ -642,6 +639,73 @@ lets the user stage + Save corrected hashes with an automatic backup.
 
 ---
 
+### Phase 14 — Self-Update [DONE]
+
+**Goal:** Let the app update itself so users on SteamOS don't have to manually
+re-download and swap files. Check on startup, notify (never force), update on
+explicit confirmation, and fall back to a release link if the update fails.
+
+**Approach — `tauri-plugin-updater`.** The updater downloads a newer build,
+verifies it against an embedded public key, replaces the running binary, and
+relaunches. Three pieces:
+
+1. **Signing keypair.** Every release's updater artifact is signed with a
+   private key; the app verifies with the embedded public key (the updater
+   refuses unsigned/mismatched bundles). Private key + password live as GitHub
+   Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`,
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`); the public key goes in
+   `tauri.conf.json` under `plugins.updater`.
+2. **Update manifest.** The updater fetches a `latest.json` (version, notes,
+   per-platform URL + signature). Generated in CI and attached to the GitHub
+   Release; the app's updater `endpoints` point at
+   `.../releases/latest/download/latest.json`.
+3. **Relaunch** via `tauri-plugin-process` after install.
+
+**Platform reality (drives the fallback):** the updater can self-replace the
+**AppImage** and the macOS app, but **not the `.deb`** (the system package
+manager owns those files). So AppImage/macOS users get one-click updates;
+`.deb`/other users get the notification + a "Download the new version" link to
+the GitHub release. This is exactly the requested fail-safe behavior.
+
+- [x] Add `tauri-plugin-updater` + `tauri-plugin-process`; embed the public key
+      and release `latest.json` endpoint in `tauri.conf.json`
+      (`createUpdaterArtifacts: true`). Updater is desktop-only via `cfg`.
+- [x] Signing keypair generated (`tauri signer generate`); public key committed
+      in config. Private key + password added as GitHub Actions secrets
+      (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
+- [x] CI: sign updater artifacts on tag and assemble a single `latest.json`
+      (a `updater-manifest` job merges each platform's signature; kept the
+      hand-rolled build so the SteamOS Wayland-lib strip survives). The Linux
+      AppImage is **re-signed after the strip/repack** since repacking
+      invalidates the original signature.
+- [x] Update logic via the official JS plugin API (`@tauri-apps/plugin-updater`
+      `check()` + `downloadAndInstall()`, `@tauri-apps/plugin-process`
+      `relaunch()`) — no custom Rust commands needed.
+- [x] `useAppUpdate` hook — checks on startup, non-blocking, silent on failure;
+      exposes phase/version/notes, download+install with progress, error,
+      dismiss, and a manual `checkNow`.
+- [x] `AppUpdateBanner` — floating "vX available", renders the changelog,
+      "Update now" / "Later". On success relaunches; on failure shows the error
+      + an "Open GitHub" release link. Design-system tokens.
+- [x] Changelog — reuses the auto-generated release notes carried in the
+      updater manifest; no separate changelog source.
+
+**Notes / caveats:**
+- An update applies on **next launch** after install — the updater downloads,
+  verifies, replaces, then relaunches into the new version. It can't hot-patch
+  the currently-running process.
+- Startup check must be non-blocking and fail silently (no network at launch
+  shouldn't nag or delay the UI).
+- This supersedes the earlier Section 8 note that distribution was "download a
+  new tagged release by hand" — for AppImage/macOS it now becomes one-click.
+
+**Deliverable:** on launch, if a newer signed release exists, a dismissible
+banner offers the changelog and a one-click update (AppImage/macOS) or a
+download link (.deb); a failed update never leaves the app broken and always
+points the user to the release page.
+
+---
+
 ## Platform Considerations (Arch Linux / SteamOS)
 
 | Concern | Approach |
@@ -677,9 +741,18 @@ lets the user stage + Save corrected hashes with an automatic backup.
 | Phase 12 — Symlink Mod Mgmt | Done | In-place symlink layout (`DISABLED_managed_src` + symlinks in the category folders, not a separate `managed_tgt` tree) so toggling never invalidates 3DMigoto path-keyed settings. Opt-in migration with restore point + `d3dx_user.ini` key rewrite. Plus manual mod install (folder/archive, symlink-layout only). 73 Rust unit tests, tsc/vite/cargo clean. Live-reload F10 trigger deferred |
 | Phase 13 — INI Tools | Done | Tabbed detail panel (Details/Keybinds/Hashes). Line-preserving `ini.rs` parser+writer; read-only keybind display with `VK_*` translation (drops `no_*` negation modifiers); manual hash updater (stage + explicit Save, non-colliding `.bak`/`.bak.2`/… backups). Local mods only. 21 new Rust unit tests (94 total), tsc/vite/cargo clean. Rebinding + cross-mod hash copy deferred |
 
-**Current version: v0.13.0.** Phase 13 (INI Tools) shipped: tabbed mod detail
-panel with read-only keybind display (`VK_*` translation) and a manual,
-staged-then-Save hash updater, both on a line-preserving `ini.rs` parser/writer
-that backs up to `.ini.bak` before any write. Earlier 0.12.x work: SteamOS exFAT
-symlink error message, multi-byte UTF-8 folder-name panic fix, sidebar version
-read from `package.json` at build time, Windows removed from CI/release.
+| Phase 14 — Self-Update | Done | `tauri-plugin-updater` + `tauri-plugin-process`: startup check, notify (no force), one-click update on confirm for AppImage/macOS, release-link fallback for `.deb`/failures. Signed releases + `latest.json` via a CI manifest job; AppImage re-signed after the Wayland-lib strip. `useAppUpdate` hook + `AppUpdateBanner`. Changelog from auto-generated release notes. tsc/vite clean |
+
+**Current version: v0.14.0.** Phase 14 (Self-Update) shipped: in-app auto-update
+via `tauri-plugin-updater` — startup check, non-forcing notification banner with
+changelog, one-click update for AppImage/macOS, release-link fallback for `.deb`
+and failures. Releases are signed and a CI job assembles `latest.json`; the
+SteamOS AppImage is re-signed after the Wayland-lib strip. Since Phase 13 also:
+fixed the SteamOS AppImage blank window (`EGL_BAD_PARAMETER`) by stripping the
+over-bundled `libwayland-*` libs in CI, new mods default to the symlink layout
+on a fresh mod dir, and the release pipeline attaches bundles directly (no
+Actions artifact-storage quota).
+
+**First-update caveat:** an installed copy can only auto-update *from* a build
+that already contains the updater. v0.14.0 is the baseline — the next tagged
+release after it is the first one existing installs will detect and offer.

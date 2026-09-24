@@ -6,15 +6,20 @@ on:
 permissions:
   contents: write
 jobs:
-  # Each platform builds its bundles and attaches them DIRECTLY to the GitHub
-  # Release for the pushed tag. We deliberately do NOT use actions/upload-artifact
-  # here: release assets don't count against the Actions artifact-storage quota,
-  # and the previous "upload artifact -> download in a separate job -> attach"
-  # flow double-stored every bundle and burned that quota (which is what caused
-  # "Artifact storage quota has been hit"). softprops/action-gh-release creates
-  # the release on the first job to run and appends assets on the others.
+  # Each platform builds + signs its bundles and attaches them DIRECTLY to the
+  # GitHub Release. We avoid actions/upload-artifact for the bundles (release
+  # assets don't count against the Actions artifact-storage quota). The small
+  # updater signatures ARE passed between jobs as artifacts so the final job can
+  # assemble a single latest.json — they're a few hundred bytes, negligible.
+  #
+  # Signing: `createUpdaterArtifacts` is on in tauri.conf.json, and the signing
+  # key is provided via the TAURI_SIGNING_* secrets, so `tauri build` emits a
+  # signed updater bundle (+ .sig) for each platform.
   release-linux:
     runs-on: ubuntu-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
@@ -37,40 +42,55 @@ jobs:
       - name: Build Tauri (Linux)
         run: npx tauri build --bundles appimage,deb
       # Tauri's AppImage over-bundles its own Wayland client libraries. On
-      # SteamOS/Steam Deck (Mesa 25+) the stale bundled libwayland-client 1.22
-      # makes eglGetDisplay fail with EGL_BAD_PARAMETER and WebKitWebProcess
-      # aborts -> blank window. Every Wayland system already provides these
-      # libraries at the correct version, so we strip the four bundled copies
-      # from the AppImage and repack it, forcing the app to use the host's.
-      # (An in-process GDK_BACKEND=x11 env var doesn't help — the bad library
-      # is loaded by AppRun before our Rust main() runs. See tauri#15665.)
-      - name: Strip bundled Wayland libs from the AppImage
+      # SteamOS/Steam Deck (Mesa 25+) the stale bundled libwayland-client makes
+      # eglGetDisplay fail with EGL_BAD_PARAMETER and WebKitWebProcess aborts ->
+      # blank window. Every Wayland system provides these at the correct version,
+      # so we strip the bundled copies and repack. Repacking invalidates the
+      # updater signature tauri build produced, so we RE-SIGN the repacked
+      # AppImage afterwards. (See tauri#15665.)
+      - name: Strip bundled Wayland libs and re-sign the AppImage
         run: |
           set -euo pipefail
           APPDIR="src-tauri/target/release/bundle/appimage"
           APPIMAGE="$(ls "$APPDIR"/*.AppImage | head -n1)"
           echo "Post-processing: $APPIMAGE"
 
-          # Unpack the AppImage (self-extracts to ./squashfs-root).
           "$APPIMAGE" --appimage-extract >/dev/null
-          rm -f "$APPIMAGE"
+          rm -f "$APPIMAGE" "$APPIMAGE.sig"
 
-          # Remove the over-bundled Wayland protocol libraries (safe: the host
-          # always provides them). Match versioned sonames too (e.g. .so.0).
           find squashfs-root -type f \
             \( -name 'libwayland-client.so*' \
             -o -name 'libwayland-egl.so*' \
             -o -name 'libwayland-cursor.so*' \
             -o -name 'libwayland-server.so*' \) -print -delete
 
-          # Repack with appimagetool.
           curl -L -o appimagetool \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
-          # appimagetool itself is an AppImage; extract-and-run avoids needing FUSE on CI.
           ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APPIMAGE"
           rm -rf squashfs-root appimagetool
           echo "Repacked: $APPIMAGE"
+
+          # Re-sign the repacked AppImage so the updater signature matches.
+          npx tauri signer sign \
+            --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
+            --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+            "$APPIMAGE"
+          echo "Re-signed: $APPIMAGE.sig"
+      - name: Stage updater signature for manifest
+        run: |
+          set -euo pipefail
+          APPDIR="src-tauri/target/release/bundle/appimage"
+          APPIMAGE="$(ls "$APPDIR"/*.AppImage | head -n1)"
+          mkdir -p sig-out
+          echo "$(basename "$APPIMAGE")" > sig-out/linux-file.txt
+          cp "$APPIMAGE.sig" sig-out/linux.sig
+      - name: Upload Linux signature
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-linux
+          path: sig-out/
+          retention-days: 1
       - name: Attach Linux bundles to release
         uses: softprops/action-gh-release@v2
         with:
@@ -79,8 +99,12 @@ jobs:
           files: |
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/deb/*.deb
+
   release-macos:
     runs-on: macos-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
@@ -97,9 +121,85 @@ jobs:
       - name: Install frontend deps
         run: npm ci
       - name: Build Tauri (macOS)
-        run: npx tauri build --bundles dmg
-      - name: Attach macOS bundle to release
+        run: npx tauri build --bundles app,dmg
+      - name: Stage updater artifacts for manifest
+        run: |
+          set -euo pipefail
+          MAC="src-tauri/target/release/bundle/macos"
+          # The updater bundle is the app tarball tauri build produced.
+          TARBALL="$(ls "$MAC"/*.app.tar.gz | head -n1)"
+          mkdir -p sig-out
+          echo "$(basename "$TARBALL")" > sig-out/macos-file.txt
+          cp "$TARBALL.sig" sig-out/macos.sig
+          cp "$TARBALL" sig-out/updater-tarball.tar.gz
+      - name: Upload macOS updater artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-macos
+          path: sig-out/
+          retention-days: 1
+      - name: Attach macOS bundles to release
         uses: softprops/action-gh-release@v2
         with:
           fail_on_unmatched_files: true
-          files: src-tauri/target/release/bundle/dmg/*.dmg
+          files: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+
+  # Assemble a single latest.json the updater endpoint points at, using the
+  # signatures produced by each platform build, and attach it to the release.
+  updater-manifest:
+    needs: [release-linux, release-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download signatures
+        uses: actions/download-artifact@v4
+        with:
+          path: sigs
+      - name: Build latest.json
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO="${GITHUB_REPOSITORY}"
+          BASE="https://github.com/$REPO/releases/download/${GITHUB_REF_NAME}"
+          NOTES="See the release notes at https://github.com/$REPO/releases/tag/${GITHUB_REF_NAME}"
+
+          LINUX_FILE="$(cat sigs/sig-linux/linux-file.txt)"
+          LINUX_SIG="$(cat sigs/sig-linux/linux.sig)"
+          MAC_FILE="$(cat sigs/sig-macos/macos-file.txt)"
+          MAC_SIG="$(cat sigs/sig-macos/macos.sig)"
+
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # URL-encode spaces in filenames for the download URLs.
+          enc() { echo "$1" | sed 's/ /%20/g'; }
+
+          cat > latest.json <<EOF
+          {
+            "version": "$VERSION",
+            "notes": "$NOTES",
+            "pub_date": "$PUB_DATE",
+            "platforms": {
+              "linux-x86_64": {
+                "signature": "$LINUX_SIG",
+                "url": "$BASE/$(enc "$LINUX_FILE")"
+              },
+              "darwin-x86_64": {
+                "signature": "$MAC_SIG",
+                "url": "$BASE/$(enc "$MAC_FILE")"
+              },
+              "darwin-aarch64": {
+                "signature": "$MAC_SIG",
+                "url": "$BASE/$(enc "$MAC_FILE")"
+              }
+            }
+          }
+          EOF
+          echo "Generated latest.json:"
+          cat latest.json
+      - name: Attach latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          files: latest.json

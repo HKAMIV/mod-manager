@@ -1,17 +1,23 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { fileURLToPath } from "url";
 import { readFileSync } from "fs";
+
+// This is an ESM config ("type": "module"), so __dirname is not defined.
+// Derive the project root from the config file's own URL instead.
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const host = process.env.TAURI_DEV_HOST;
 
 // Read the app version from package.json so the UI always shows the real
 // current version without a hardcoded string that drifts out of date.
 const pkgVersion = JSON.parse(
-  readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
+  readFileSync(path.resolve(projectRoot, "package.json"), "utf-8")
 ).version as string;
 
 export default defineConfig({
+  root: projectRoot,
   plugins: [react()],
   clearScreen: false,
   define: {
@@ -19,7 +25,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(projectRoot, "./src"),
     },
   },
   server: {

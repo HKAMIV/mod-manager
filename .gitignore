@@ -22,3 +22,7 @@ src-tauri/gen/
 # Environment
 .env
 .env.local
+
+# Tauri updater signing keys — never commit the private key
+*.key
+!*.key.pub

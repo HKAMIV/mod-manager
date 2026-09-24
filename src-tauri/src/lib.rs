@@ -21,10 +21,19 @@ use state::AppState;
 pub fn run() {
     let app_state = AppState::new();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
+    // The updater plugin is desktop-only (not built for mobile targets).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder
         .manage(app_state)
         .manage(HotkeyRegistry::default())
         .invoke_handler(tauri::generate_handler![
