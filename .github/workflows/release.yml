@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       appimage_name: ${{ steps.stage.outputs.appimage_name }}
+      appimage_sig: ${{ steps.stage.outputs.appimage_sig }}
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -82,8 +83,11 @@ jobs:
             "$APPIMAGE"
           echo "Re-signed: $APPIMAGE.sig"
 
-          # Expose the AppImage filename to the manifest job (free job output).
+          # Expose the AppImage filename AND the signature contents to the
+          # manifest job as free job outputs — no artifact storage, no
+          # download-by-pattern (which breaks on the space in the filename).
           echo "appimage_name=$(basename "$APPIMAGE")" >> "$GITHUB_OUTPUT"
+          echo "appimage_sig=$(cat "$APPIMAGE.sig")" >> "$GITHUB_OUTPUT"
       - name: Attach Linux bundles + signature to release
         uses: softprops/action-gh-release@v2
         with:
@@ -98,6 +102,7 @@ jobs:
     runs-on: macos-latest
     outputs:
       tarball_name: ${{ steps.stage.outputs.tarball_name }}
+      tarball_sig: ${{ steps.stage.outputs.tarball_sig }}
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -118,13 +123,14 @@ jobs:
         run: npm ci
       - name: Build Tauri (macOS)
         run: npx tauri build --bundles app,dmg
-      - name: Record updater tarball name
+      - name: Record updater tarball name + signature
         id: stage
         run: |
           set -euo pipefail
           MAC="src-tauri/target/release/bundle/macos"
           TARBALL="$(ls "$MAC"/*.app.tar.gz | head -n1)"
           echo "tarball_name=$(basename "$TARBALL")" >> "$GITHUB_OUTPUT"
+          echo "tarball_sig=$(cat "$TARBALL.sig")" >> "$GITHUB_OUTPUT"
       - name: Attach macOS bundles + signature to release
         uses: softprops/action-gh-release@v2
         with:
@@ -135,8 +141,9 @@ jobs:
             src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
   # Assemble the single latest.json the updater endpoint points at. Reads the
-  # .sig files back FROM THE RELEASE (no artifact storage) and uses the bundle
-  # filenames passed as job outputs. Attaches latest.json to the release.
+  # signature contents (passed as job outputs) plus the bundle filenames.
+  # No artifact storage and no download-by-pattern (which broke on the space
+  # in "Mod Manager_….AppImage.sig"). Attaches latest.json to the release.
   updater-manifest:
     needs: [release-linux, release-macos]
     runs-on: ubuntu-latest
@@ -146,6 +153,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPIMAGE_NAME: ${{ needs.release-linux.outputs.appimage_name }}
           TARBALL_NAME: ${{ needs.release-macos.outputs.tarball_name }}
+          LINUX_SIG: ${{ needs.release-linux.outputs.appimage_sig }}
+          MAC_SIG: ${{ needs.release-macos.outputs.tarball_sig }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -155,25 +164,10 @@ jobs:
           NOTES="See the release notes at https://github.com/$REPO/releases/tag/$TAG"
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Download the .sig assets back from the release (authenticated, so it
-          # works even before the release is public). Retry briefly in case the
-          # asset isn't queryable the instant the build job finished.
-          fetch_sig() {
-            local asset="$1" out="$2" i
-            for i in 1 2 3 4 5; do
-              if gh release download "$TAG" --repo "$REPO" --pattern "$asset" --output "$out" --clobber 2>/dev/null; then
-                return 0
-              fi
-              echo "retry $i: $asset not available yet"; sleep 5
-            done
-            echo "ERROR: could not download $asset from release $TAG" >&2
-            return 1
-          }
-
-          fetch_sig "${APPIMAGE_NAME}.sig" linux.sig
-          fetch_sig "${TARBALL_NAME}.sig" macos.sig
-          LINUX_SIG="$(cat linux.sig)"
-          MAC_SIG="$(cat macos.sig)"
+          if [ -z "$LINUX_SIG" ] || [ -z "$MAC_SIG" ]; then
+            echo "ERROR: a platform signature output was empty (a build job may have failed)" >&2
+            exit 1
+          fi
 
           enc() { echo "$1" | sed 's/ /%20/g'; }
 
