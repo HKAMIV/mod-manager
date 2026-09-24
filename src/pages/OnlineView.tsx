@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useGameBananaBrowse, SORT_OPTIONS } from "../hooks/useGameBananaBrowse";
 import { useDownloads } from "../hooks/useDownloads";
@@ -74,6 +74,10 @@ function OnlineView() {
     setDownloadToast({ message, isError });
     window.setTimeout(() => setDownloadToast(null), isError ? 6000 : 4000);
   };
+
+  // Stable identity so the memoized GbModCard grid doesn't re-render every card
+  // on each OnlineView render (e.g. while a download toast ticks).
+  const handleSelectMod = useCallback((mod: { id: number }) => setSelectedModId(mod.id), []);
 
   const handleDownload = async (
     file: GbModFile,
@@ -236,7 +240,7 @@ function OnlineView() {
               style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}
             >
               {filteredMods.map((mod) => (
-                <GbModCard key={mod.id} mod={mod} onSelect={(m) => setSelectedModId(m.id)} />
+                <GbModCard key={mod.id} mod={mod} onSelect={handleSelectMod} />
               ))}
             </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ImageOff, FileStack, Check, AlertTriangle, ArrowUpCircle } from "lucide-react";
 import type { ModInfo } from "../types";
@@ -47,12 +47,12 @@ function ModCard({
 
   return (
     <div
-      className={`game-panel group relative flex flex-col overflow-hidden border transition-all ${
+      className={`game-panel card-lift card-enter content-auto group relative flex flex-col overflow-hidden border ${
         selected
           ? "border-game shadow-glow-game bg-game/5"
           : conflicting
           ? "border-game2/50 hover:border-game2"
-          : "border-surface-3 bg-surface-1 hover:border-game/40"
+          : "border-surface-3 bg-surface-1 hover:border-game/40 hover:shadow-glow-game"
       } ${!mod.enabled ? "opacity-60" : ""}`}
     >
       {/* Conflict accent bar — passive warning, doesn't block anything */}
@@ -72,6 +72,10 @@ function ModCard({
               src={previewSrc}
               alt={mod.name}
               onError={() => setImageError(true)}
+              loading="lazy"
+              decoding="async"
+              width={320}
+              height={180}
               className="w-full h-full object-cover"
             />
           ) : (
@@ -94,10 +98,10 @@ function ModCard({
                 onCheckChange(mod, !checked);
               }
             }}
-            className={`absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center backdrop-blur-md transition-colors cursor-pointer ${
+            className={`absolute top-2 left-2 w-5 h-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer ${
               checked
                 ? "bg-game border-game text-surface-0"
-                : "bg-surface-0/60 border-surface-3 text-transparent opacity-0 group-hover:opacity-100"
+                : "bg-surface-0/60 border-surface-3 text-transparent opacity-0 group-hover:opacity-100 group-hover:backdrop-blur-md"
             }`}
           >
             <Check size={13} strokeWidth={3} />
@@ -158,7 +162,8 @@ function ModCard({
           }`}
         >
           <span
-            className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-surface-0 transition-transform ${
+            key={mod.enabled ? "on" : "off"}
+            className={`toggle-pop absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-surface-0 transition-transform ${
               mod.enabled ? "translate-x-3.5" : "translate-x-0"
             }`}
           />
@@ -168,4 +173,9 @@ function ModCard({
   );
 }
 
-export default ModCard;
+// Memoized: the LocalView grid can hold hundreds of these, and a single
+// interaction (search keystroke, one toggle, hover) re-renders LocalView.
+// Without memo every card re-renders and re-composites its glow/blur; with it
+// (plus useCallback'd handlers in LocalView) only the cards whose props
+// actually changed re-render.
+export default memo(ModCard);

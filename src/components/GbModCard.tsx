@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ImageOff, Heart, Eye, Star, ShieldAlert } from "lucide-react";
 import type { GbModSummary } from "../types";
 
@@ -19,7 +19,7 @@ function GbModCard({ mod, onSelect }: Props) {
   return (
     <button
       onClick={() => onSelect(mod)}
-      className="game-panel group relative flex flex-col overflow-hidden border border-surface-3 bg-surface-1 hover:border-game/40 text-left transition-all"
+      className="game-panel card-lift card-enter content-auto group relative flex flex-col overflow-hidden border border-surface-3 bg-surface-1 hover:border-game/40 hover:shadow-glow-game text-left"
     >
       {/* Thumbnail */}
       <div className="relative aspect-video bg-surface-2 flex items-center justify-center overflow-hidden">
@@ -29,6 +29,9 @@ function GbModCard({ mod, onSelect }: Props) {
             alt={mod.name}
             onError={() => setImageError(true)}
             loading="lazy"
+            decoding="async"
+            width={320}
+            height={180}
             className="w-full h-full object-cover"
           />
         ) : (
@@ -77,4 +80,4 @@ function GbModCard({ mod, onSelect }: Props) {
   );
 }
 
-export default GbModCard;
+export default memo(GbModCard);

@@ -322,3 +322,78 @@ body,
 .toggle-pop {
   animation: toggle-pop 200ms ease-out;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Polish pass — scroll performance + motion micro-interactions
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Off-screen render skipping. `content-visibility: auto` lets the engine skip
+   layout/paint/compositing for cards scrolled out of view — the single biggest
+   win for long unvirtualized grids, with no JS windowing library. The
+   contain-intrinsic-size is a size *placeholder* for skipped cards so the
+   scrollbar stays stable and scroll position doesn't jump; it's the card's
+   approximate rendered height (aspect-video preview ~101px at 180px wide +
+   ~72px of text/toggle chrome). */
+.content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 176px;
+}
+
+/* Shared motion feel. One easing curve + a couple of durations so hover,
+   selection, and enter animations move consistently instead of each using an
+   ad-hoc transition. `--ease-out-soft` is a gentle decelerating curve that
+   reads as "settling into place" rather than a linear snap. */
+:root {
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 140ms;
+  --dur-med: 240ms;
+}
+
+/* Card hover lift — a small translate + shadow the card eases into, giving the
+   grid a tactile, responsive feel instead of only a flat border color swap.
+   Transitions are scoped to transform/box-shadow/border-color (NOT `all`) so a
+   theme recalc or unrelated style change can't trigger a broad relayout across
+   every card. `will-change: transform` hints the compositor to promote the
+   card to its own layer only while it matters. */
+.card-lift {
+  transition: transform var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft);
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Card mount/enter — a quick fade + rise, used with a per-card stagger delay so
+   a freshly-scanned or re-filtered grid cascades in rather than snapping in as
+   one rigid block. `both` keeps the pre-animation (opacity:0) state so cards
+   don't flash at full opacity for a frame before animating. */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.card-enter {
+  animation: card-enter var(--dur-med) var(--ease-out-soft) both;
+}
+
+/* Accessibility + performance: honor the OS "reduce motion" setting. Also acts
+   as a safety net on very low-power scenarios where the user has opted out of
+   motion — collapse all the enter/lift/pop animation to near-instant. */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .card-enter,
+  .toggle-pop,
+  .card-lift {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .card-lift:hover {
+    transform: none;
+  }
+}

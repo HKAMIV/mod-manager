@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useMods } from "../hooks/useMods";
 import { useUpdateCheck } from "../hooks/useUpdateCheck";
@@ -83,32 +83,45 @@ function LocalView() {
     [conflicts]
   );
 
-  const handleDisableConflicting = async (mod: ModInfo) => {
-    setTogglingId(mod.id);
-    await toggleMod(mod, false);
-    setTogglingId(null);
-  };
+  // Card-facing handlers are useCallback'd so their identity is stable across
+  // LocalView re-renders (search keystrokes, one mod toggling, etc.). Combined
+  // with ModCard being React.memo'd, a single interaction only re-renders the
+  // card(s) whose data actually changed instead of the whole grid.
+  const handleDisableConflicting = useCallback(
+    async (mod: ModInfo) => {
+      setTogglingId(mod.id);
+      await toggleMod(mod, false);
+      setTogglingId(null);
+    },
+    [toggleMod]
+  );
 
-  const handleSelect = (mod: ModInfo) => {
-    setSelectedId(mod.id);
-    setSelectedMod(mod);
-    if (!detailPanelOpen) toggleDetailPanel();
-  };
+  const handleSelect = useCallback(
+    (mod: ModInfo) => {
+      setSelectedId(mod.id);
+      setSelectedMod(mod);
+      if (!detailPanelOpen) toggleDetailPanel();
+    },
+    [setSelectedMod, detailPanelOpen, toggleDetailPanel]
+  );
 
-  const handleCheckChange = (mod: ModInfo, checked: boolean) => {
+  const handleCheckChange = useCallback((mod: ModInfo, checked: boolean) => {
     setCheckedIds((prev) => {
       const next = new Set(prev);
       if (checked) next.add(mod.id);
       else next.delete(mod.id);
       return next;
     });
-  };
+  }, []);
 
-  const handleToggleEnabled = async (mod: ModInfo) => {
-    setTogglingId(mod.id);
-    await toggleMod(mod, !mod.enabled);
-    setTogglingId(null);
-  };
+  const handleToggleEnabled = useCallback(
+    async (mod: ModInfo) => {
+      setTogglingId(mod.id);
+      await toggleMod(mod, !mod.enabled);
+      setTogglingId(null);
+    },
+    [toggleMod]
+  );
 
   const checkedMods = useMemo(
     () => mods.filter((m) => checkedIds.has(m.id)),
