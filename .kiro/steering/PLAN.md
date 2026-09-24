@@ -699,6 +699,22 @@ the GitHub release. This is exactly the requested fail-safe behavior.
 - This supersedes the earlier Section 8 note that distribution was "download a
   new tagged release by hand" — for AppImage/macOS it now becomes one-click.
 
+**Verified end-to-end on a Steam Deck** (0.14.0 → 0.14.1: banner → download →
+signature verify → replace → relaunch). Two bugs surfaced only on real hardware,
+both now fixed:
+- **Private repo silently blocks the updater.** The updater fetches
+  `releases/latest/download/latest.json` with no auth, so on a *private* repo
+  GitHub returns 404 and the startup check fails silently — no banner, no error.
+  The repo must be public for the GitHub-hosted endpoint to work (or the manifest
+  + assets must be mirrored somewhere public). Fixed by making the repo public.
+- **GitHub sanitizes spaces to dots in asset filenames.** `productName` is
+  "Mod Manager", so the bundle is `Mod Manager_….AppImage`, but on upload GitHub
+  stores it as `Mod.Manager_….AppImage`. The manifest job was percent-encoding
+  the space (`Mod%20Manager…`), producing a 404 download URL. Fixed by matching
+  GitHub's sanitizing in the manifest job (`tr ' ' '.'`, not `%20`). The signed
+  filename *inside* the `.sig` doesn't need to match the URL — the updater
+  verifies the downloaded bytes, not the name.
+
 **Deliverable:** on launch, if a newer signed release exists, a dismissible
 banner offers the changelog and a one-click update (AppImage/macOS) or a
 download link (.deb); a failed update never leaves the app broken and always
@@ -741,13 +757,18 @@ points the user to the release page.
 | Phase 12 — Symlink Mod Mgmt | Done | In-place symlink layout (`DISABLED_managed_src` + symlinks in the category folders, not a separate `managed_tgt` tree) so toggling never invalidates 3DMigoto path-keyed settings. Opt-in migration with restore point + `d3dx_user.ini` key rewrite. Plus manual mod install (folder/archive, symlink-layout only). 73 Rust unit tests, tsc/vite/cargo clean. Live-reload F10 trigger deferred |
 | Phase 13 — INI Tools | Done | Tabbed detail panel (Details/Keybinds/Hashes). Line-preserving `ini.rs` parser+writer; read-only keybind display with `VK_*` translation (drops `no_*` negation modifiers); manual hash updater (stage + explicit Save, non-colliding `.bak`/`.bak.2`/… backups). Local mods only. 21 new Rust unit tests (94 total), tsc/vite/cargo clean. Rebinding + cross-mod hash copy deferred |
 
-| Phase 14 — Self-Update | Done | `tauri-plugin-updater` + `tauri-plugin-process`: startup check, notify (no force), one-click update on confirm for AppImage/macOS, release-link fallback for `.deb`/failures. Signed releases + `latest.json` via a CI manifest job; AppImage re-signed after the Wayland-lib strip. `useAppUpdate` hook + `AppUpdateBanner`. Changelog from auto-generated release notes. tsc/vite clean |
+| Phase 14 — Self-Update | Done | `tauri-plugin-updater` + `tauri-plugin-process`: startup check, notify (no force), one-click update on confirm for AppImage/macOS, release-link fallback for `.deb`/failures. Signed releases + `latest.json` via a CI manifest job; AppImage re-signed after the Wayland-lib strip. `useAppUpdate` hook + `AppUpdateBanner`. Changelog from auto-generated release notes. **Verified on Steam Deck (0.14.0 → 0.14.1)**; fixed two on-device bugs — private repo 404s the updater endpoint, and GitHub sanitizes spaces→dots in asset names so manifest URLs must match (`tr ' ' '.'`, not `%20`). tsc/vite clean |
 
-**Current version: v0.14.0.** Phase 14 (Self-Update) shipped: in-app auto-update
+**Current version: v0.14.1.** Phase 14 (Self-Update) shipped and is now verified
+end-to-end on a Steam Deck (0.14.0 auto-updated to 0.14.1): in-app auto-update
 via `tauri-plugin-updater` — startup check, non-forcing notification banner with
 changelog, one-click update for AppImage/macOS, release-link fallback for `.deb`
 and failures. Releases are signed and a CI job assembles `latest.json`; the
-SteamOS AppImage is re-signed after the Wayland-lib strip. Since Phase 13 also:
+SteamOS AppImage is re-signed after the Wayland-lib strip. The on-device test
+turned up two bugs, both fixed (see Phase 14 notes): a private repo 404s the
+GitHub-hosted updater endpoint (repo must be public), and GitHub replaces spaces
+with dots in uploaded asset names, so the manifest job must build download URLs
+with `tr ' ' '.'` rather than percent-encoding the space. Since Phase 13 also:
 fixed the SteamOS AppImage blank window (`EGL_BAD_PARAMETER`) by stripping the
 over-bundled `libwayland-*` libs in CI, new mods default to the symlink layout
 on a fresh mod dir, and the release pipeline attaches bundles directly (no
