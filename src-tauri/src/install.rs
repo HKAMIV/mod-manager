@@ -42,16 +42,12 @@ pub struct InstallResult {
 }
 
 /// Shared precondition: manual install is only supported on the symlink layout.
+/// Ensure the symlink layout is active before a manual install. On a fresh
+/// mod directory this auto-initializes it; on a directory with existing legacy
+/// mods it errors, directing the user to migrate first (so we never create a
+/// mixed layout). Delegates to the shared helper the download pipeline uses.
 fn require_symlink_layout(mod_path: &str) -> Result<(), String> {
-    if mods::is_symlink_layout(mod_path) {
-        Ok(())
-    } else {
-        Err(
-            "This game isn't using the symlink layout yet. Migrate it from the Local Mods \
-             page (the \"Upgrade to Symlink Layout\" banner) before adding mods manually."
-                .to_string(),
-        )
-    }
+    mods::ensure_symlink_layout_for_install(mod_path)
 }
 
 // ---------------------------------------------------------------------------
@@ -440,10 +436,46 @@ mod tests {
         fs::remove_dir_all(source.parent().unwrap()).ok();
     }
 
+    #[cfg(unix)]
     #[test]
-    fn install_rejected_on_non_symlink_layout() {
-        // A plain mod root with no managed_src → not symlink layout.
+    fn install_auto_initializes_symlink_layout_on_fresh_dir() {
+        // A fresh, empty mod root (no managed_src, no legacy mods) should have
+        // the symlink layout auto-created on install rather than being rejected
+        // — this is the clean-SteamOS case.
         let mod_root = temp_dir();
+        let source = make_source("Furina");
+
+        let result = install_mod_from_folder(
+            source.to_str().unwrap(),
+            mod_root.to_str().unwrap(),
+            "Characters",
+            "",
+        )
+        .expect("install on a fresh dir should auto-init the symlink layout");
+
+        // Layout is now active and the mod is in managed_src with a symlink.
+        assert!(mods::is_symlink_layout(mod_root.to_str().unwrap()));
+        assert!(mod_root
+            .join(mods::MANAGED_SRC)
+            .join("Characters")
+            .join("Furina")
+            .join("mod.ini")
+            .exists());
+        assert!(crate::symlink::is_symlink(&mod_root.join("Characters").join("Furina")));
+        assert!(result.mod_info.using_symlink_layout);
+
+        fs::remove_dir_all(&mod_root).ok();
+        fs::remove_dir_all(source.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn install_rejected_when_legacy_mods_present() {
+        // A mod root that already has legacy flat mods must NOT be silently
+        // switched to the symlink layout (that would hide the existing mods).
+        // Installs are rejected until the user migrates.
+        let mod_root = temp_dir();
+        // Pre-existing legacy mod at mod_root/Characters/Nahida.
+        write_file(&mod_root.join("Characters").join("Nahida").join("mod.ini"), "legacy");
         let source = make_source("Furina");
 
         let err = install_mod_from_folder(
@@ -452,10 +484,11 @@ mod tests {
             "Characters",
             "",
         );
-        assert!(err.is_err(), "install must be rejected without symlink layout");
-        assert!(err.unwrap_err().contains("symlink layout"));
-        // Nothing should have been created.
-        assert!(!mod_root.join("Characters").exists());
+        assert!(err.is_err(), "install must be rejected when legacy mods exist");
+        assert!(err.unwrap_err().to_lowercase().contains("migrate"));
+        // No symlink layout created, no new mod placed.
+        assert!(!mods::is_symlink_layout(mod_root.to_str().unwrap()));
+        assert!(!mod_root.join(mods::MANAGED_SRC).exists());
 
         fs::remove_dir_all(&mod_root).ok();
         fs::remove_dir_all(source.parent().unwrap()).ok();

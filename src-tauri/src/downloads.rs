@@ -900,27 +900,12 @@ fn plan_placement(item: &DownloadItem) -> Result<Placement, String> {
     let content_root = find_content_root(&extracted_dir(&item.id));
     let mod_root = PathBuf::from(&item.mod_path);
 
-    if crate::mods::is_symlink_layout(&item.mod_path) {
-        plan_placement_symlink(item, &content_root, &mod_root)
-    } else {
-        plan_placement_legacy(item, &content_root, &mod_root)
-    }
-}
-
-fn plan_placement_legacy(item: &DownloadItem, content_root: &Path, mod_root: &Path) -> Result<Placement, String> {
-    let dest_parent = match &item.category_hint {
-        Some(category) => mod_root.join(sanitize_component(category)),
-        None => mod_root.to_path_buf(),
-    };
-    let dest = dest_parent.join(sanitize_component(&item.mod_name));
-
-    if dest.exists() {
-        Ok(Placement::Conflict(dest))
-    } else {
-        fs::create_dir_all(&dest_parent).map_err(|e| e.to_string())?;
-        move_dir(content_root, &dest)?;
-        Ok(Placement::Clear(dest))
-    }
+    // New installs always use the symlink layout. On a fresh mod directory
+    // this initializes it (creating DISABLED_managed_src); on a directory that
+    // still has legacy mods it returns an error asking the user to migrate
+    // first, so we never create a mixed layout that hides existing mods.
+    crate::mods::ensure_symlink_layout_for_install(&item.mod_path)?;
+    plan_placement_symlink(item, &content_root, &mod_root)
 }
 
 fn plan_placement_symlink(item: &DownloadItem, content_root: &Path, _mod_root: &Path) -> Result<Placement, String> {

@@ -148,9 +148,15 @@ function LocalView() {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setAddModOpen(true)}
-            disabled={!modPath || !layoutStatus?.is_symlink_layout}
+            disabled={
+              !modPath ||
+              // Blocked only when a migration is pending (legacy mods present,
+              // symlink layout not yet active). A fresh directory is allowed —
+              // the install auto-initializes the symlink layout.
+              (!!layoutStatus && !layoutStatus.is_symlink_layout && layoutStatus.has_legacy_mods)
+            }
             title={
-              layoutStatus && !layoutStatus.is_symlink_layout
+              layoutStatus && !layoutStatus.is_symlink_layout && layoutStatus.has_legacy_mods
                 ? "Migrate this game to the symlink layout to add mods manually"
                 : undefined
             }

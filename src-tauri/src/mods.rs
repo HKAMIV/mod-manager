@@ -121,6 +121,46 @@ pub fn tgt_root(mod_path: &str) -> PathBuf {
     Path::new(mod_path).join(MANAGED_TGT)
 }
 
+/// Ensure the symlink layout is active before installing a new mod, so new
+/// installs always use the source/symlink store (which keeps 3DMigoto path-
+/// keyed settings stable) rather than the legacy flat layout.
+///
+/// Behavior:
+/// - Already symlink layout → no-op, `Ok(())`.
+/// - Fresh directory with **no** legacy mods → create `DISABLED_managed_src`
+///   (and `managed_tgt`), activating the symlink layout, then `Ok(())`.
+/// - Directory that **has** legacy mods → refuse with an error, because
+///   activating the layout would make `scan_mods` (which dispatches on the
+///   presence of `DISABLED_managed_src`) stop seeing the existing flat mods,
+///   silently hiding them. The user must migrate first via the banner.
+///
+/// This is what makes downloads/installs land in the symlink layout by
+/// default on a fresh mod directory (e.g. a clean SteamOS setup).
+pub fn ensure_symlink_layout_for_install(mod_path: &str) -> Result<(), String> {
+    if is_symlink_layout(mod_path) {
+        return Ok(());
+    }
+
+    // Is there anything the legacy scanner would pick up? If so, don't create
+    // a mixed layout — require an explicit migration instead.
+    let legacy = scan_legacy_layout(mod_path).unwrap_or_default();
+    if !legacy.is_empty() {
+        return Err(
+            "This game has existing mods on the older layout. Migrate it to the symlink \
+             layout first (the \"Upgrade to Symlink Layout\" banner on the Local Mods page), \
+             then install."
+                .to_string(),
+        );
+    }
+
+    // Fresh directory — initialize the symlink layout so new mods land in it.
+    fs::create_dir_all(src_root(mod_path))
+        .map_err(|e| format!("Failed to create {}: {}", MANAGED_SRC, e))?;
+    fs::create_dir_all(tgt_root(mod_path))
+        .map_err(|e| format!("Failed to create {}: {}", MANAGED_TGT, e))?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Scanning
 // ---------------------------------------------------------------------------
@@ -904,6 +944,44 @@ mod tests {
         assert!(other.join("evil/mod.ini").exists());
         fs::remove_dir_all(&root).ok();
         fs::remove_dir_all(&other).ok();
+    }
+
+    #[test]
+    fn ensure_symlink_layout_initializes_a_fresh_dir() {
+        let root = temp_fixture_dir();
+        assert!(!is_symlink_layout(root.to_str().unwrap()));
+
+        ensure_symlink_layout_for_install(root.to_str().unwrap())
+            .expect("fresh dir should initialize");
+
+        assert!(is_symlink_layout(root.to_str().unwrap()));
+        assert!(root.join(MANAGED_SRC).is_dir());
+        assert!(root.join(MANAGED_TGT).is_dir());
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn ensure_symlink_layout_is_noop_when_already_active() {
+        let root = temp_fixture_dir();
+        fs::create_dir_all(root.join(MANAGED_SRC)).unwrap();
+        // Should succeed and not error even though managed_tgt doesn't exist yet.
+        ensure_symlink_layout_for_install(root.to_str().unwrap()).expect("noop");
+        assert!(is_symlink_layout(root.to_str().unwrap()));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn ensure_symlink_layout_refuses_when_legacy_mods_present() {
+        let root = temp_fixture_dir();
+        write_file(&root.join("Characters/Furina/mod.ini"), "legacy");
+
+        let err = ensure_symlink_layout_for_install(root.to_str().unwrap());
+        assert!(err.is_err(), "must refuse to auto-init over existing legacy mods");
+        // Layout must NOT have been created.
+        assert!(!root.join(MANAGED_SRC).exists());
+
+        fs::remove_dir_all(&root).ok();
     }
 
     // ------------------------------------------------------------------

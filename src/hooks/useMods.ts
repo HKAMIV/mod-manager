@@ -118,6 +118,15 @@ export function useMods(): UseModsResult {
     }
   }, [activeGame, modPath]);
 
+  // Re-scan mods AND re-fetch layout status. Used as the public `refresh` so
+  // that an operation which can change the layout (e.g. installing into a
+  // fresh directory auto-initializes the symlink layout) keeps the migration
+  // banner and Add-Mod gating in sync.
+  const refreshAll = useCallback(() => {
+    fetchMods();
+    fetchLayoutStatus();
+  }, [fetchMods, fetchLayoutStatus]);
+
   // Re-fetch whenever the active game or its configured path changes, and
   // reset filters so stale search/category state from a different game
   // doesn't silently hide everything.
@@ -325,7 +334,7 @@ export function useMods(): UseModsResult {
     categoryFilter,
     setCategoryFilter,
     categories,
-    refresh: fetchMods,
+    refresh: refreshAll,
     toggleMod,
     batchToggle,
     deleteMods,
