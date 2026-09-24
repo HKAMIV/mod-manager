@@ -169,7 +169,12 @@ jobs:
             exit 1
           fi
 
-          enc() { echo "$1" | sed 's/ /%20/g'; }
+          # GitHub Releases sanitizes uploaded asset filenames by replacing
+          # spaces with periods (e.g. "Mod Manager_….AppImage" is stored as
+          # "Mod.Manager_….AppImage"). The updater download URL must therefore
+          # use the *sanitized* name, NOT a percent-encoded space — %20 would
+          # 404 because no asset by that name exists on the release.
+          asset() { echo "$1" | tr ' ' '.'; }
 
           cat > latest.json <<EOF
           {
@@ -179,15 +184,15 @@ jobs:
             "platforms": {
               "linux-x86_64": {
                 "signature": "$LINUX_SIG",
-                "url": "$BASE/$(enc "$APPIMAGE_NAME")"
+                "url": "$BASE/$(asset "$APPIMAGE_NAME")"
               },
               "darwin-x86_64": {
                 "signature": "$MAC_SIG",
-                "url": "$BASE/$(enc "$TARBALL_NAME")"
+                "url": "$BASE/$(asset "$TARBALL_NAME")"
               },
               "darwin-aarch64": {
                 "signature": "$MAC_SIG",
-                "url": "$BASE/$(enc "$TARBALL_NAME")"
+                "url": "$BASE/$(asset "$TARBALL_NAME")"
               }
             }
           }
