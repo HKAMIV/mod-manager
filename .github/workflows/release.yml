@@ -36,6 +36,41 @@ jobs:
         run: npm ci
       - name: Build Tauri (Linux)
         run: npx tauri build --bundles appimage,deb
+      # Tauri's AppImage over-bundles its own Wayland client libraries. On
+      # SteamOS/Steam Deck (Mesa 25+) the stale bundled libwayland-client 1.22
+      # makes eglGetDisplay fail with EGL_BAD_PARAMETER and WebKitWebProcess
+      # aborts -> blank window. Every Wayland system already provides these
+      # libraries at the correct version, so we strip the four bundled copies
+      # from the AppImage and repack it, forcing the app to use the host's.
+      # (An in-process GDK_BACKEND=x11 env var doesn't help — the bad library
+      # is loaded by AppRun before our Rust main() runs. See tauri#15665.)
+      - name: Strip bundled Wayland libs from the AppImage
+        run: |
+          set -euo pipefail
+          APPDIR="src-tauri/target/release/bundle/appimage"
+          APPIMAGE="$(ls "$APPDIR"/*.AppImage | head -n1)"
+          echo "Post-processing: $APPIMAGE"
+
+          # Unpack the AppImage (self-extracts to ./squashfs-root).
+          "$APPIMAGE" --appimage-extract >/dev/null
+          rm -f "$APPIMAGE"
+
+          # Remove the over-bundled Wayland protocol libraries (safe: the host
+          # always provides them). Match versioned sonames too (e.g. .so.0).
+          find squashfs-root -type f \
+            \( -name 'libwayland-client.so*' \
+            -o -name 'libwayland-egl.so*' \
+            -o -name 'libwayland-cursor.so*' \
+            -o -name 'libwayland-server.so*' \) -print -delete
+
+          # Repack with appimagetool.
+          curl -L -o appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          # appimagetool itself is an AppImage; extract-and-run avoids needing FUSE on CI.
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APPIMAGE"
+          rm -rf squashfs-root appimagetool
+          echo "Repacked: $APPIMAGE"
       - name: Attach Linux bundles to release
         uses: softprops/action-gh-release@v2
         with:
