@@ -1,105 +1,70 @@
 name: Release
-
 on:
   push:
     tags:
       - "v*"
-
 permissions:
   contents: write
-
 jobs:
-  build-linux:
+  # Each platform builds its bundles and attaches them DIRECTLY to the GitHub
+  # Release for the pushed tag. We deliberately do NOT use actions/upload-artifact
+  # here: release assets don't count against the Actions artifact-storage quota,
+  # and the previous "upload artifact -> download in a separate job -> attach"
+  # flow double-stored every bundle and burned that quota (which is what caused
+  # "Artifact storage quota has been hit"). softprops/action-gh-release creates
+  # the release on the first job to run and appends assets on the others.
+  release-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
       - name: Install frontend deps
         run: npm ci
-
       - name: Build Tauri (Linux)
         run: npx tauri build --bundles appimage,deb
-
-      - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-bundles
-          path: |
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/deb/*.deb
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install frontend deps
-        run: npm ci
-
-      - name: Build Tauri (macOS)
-        run: npx tauri build --bundles dmg
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-bundles
-          path: src-tauri/target/release/bundle/dmg/*.dmg
-
-  create-release:
-    needs: [build-linux, build-macos]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-bundles
-          path: artifacts/linux
-
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-bundles
-          path: artifacts/macos
-
-      - name: Create GitHub Release
+      - name: Attach Linux bundles to release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            artifacts/linux/**/*
-            artifacts/macos/**/*
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+  release-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install frontend deps
+        run: npm ci
+      - name: Build Tauri (macOS)
+        run: npx tauri build --bundles dmg
+      - name: Attach macOS bundle to release
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          files: src-tauri/target/release/bundle/dmg/*.dmg
